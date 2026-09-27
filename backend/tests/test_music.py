@@ -64,3 +64,8 @@ def test_quantize_corrects_late_beat_grid():
     beats = np.arange(0, 20, 0.6) + 0.06
     notes = [NoteEvent(i * 0.6 + 0.03 * (i % 2), i * 0.6 + 0.55, 62 + i % 3, 1) for i in range(12)]
     assert [n.start for n in quantize(notes, beats)] == [float(i) for i in range(12)]
+
+
+def test_key_uses_final_note_to_pick_major_over_relative_minor():
+    ode = [71, 71, 72, 74, 74, 72, 71, 69, 67, 67, 69, 71, 71, 69, 69, 67]
+    assert estimate_key([BeatNote(p, i, 1.0) for i, p in enumerate(ode)]) == "G major"
