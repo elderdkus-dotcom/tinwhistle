@@ -25,6 +25,8 @@ export interface JobStatus {
   steps: JobStep[]
   /** Seconds since the analysis started. */
   elapsed: number
+  /** Estimated seconds left, or null while it cannot be estimated yet. */
+  remaining: number | null
   /** Jobs ahead of this one; 0 once it is running. */
   queuePosition: number
 }

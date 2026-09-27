@@ -56,18 +56,18 @@ class Job:
         return data
 
 
-def plan_steps(inp: JobInput) -> list[tuple[str, str, float]]:
-    """The steps this job will go through, weighted by typical running time."""
+def plan_steps(inp: JobInput) -> list[tuple[str, str]]:
+    """The steps this job will go through, in order."""
     steps = []
     if inp.url:
-        steps.append(("download", "Downloading the song", 8))
-    steps.append(("decode", "Reading the audio", 2))
+        steps.append(("download", "Downloading the song"))
+    steps.append(("decode", "Reading the audio"))
     if inp.separate and separate.separation_available():
-        steps.append(("separate", "Separating the vocals from the band", 45))
+        steps.append(("separate", "Separating the vocals from the band"))
     steps += [
-        ("beats", "Finding the beat and bar lines", 5),
-        ("notes", "Listening for notes", 30),
-        ("melody", "Following the melody", 10),
+        ("beats", "Finding the beat and bar lines"),
+        ("notes", "Listening for notes"),
+        ("melody", "Following the melody"),
     ]
     return steps
 
@@ -93,6 +93,7 @@ def analyze(inp: JobInput, workdir: Path, progress: Progress) -> tuple[Melody, P
     wav = fetch.to_wav(src, workdir / "song.wav", start=inp.start, duration=duration)
     y, sr = librosa.load(wav, sr=fetch.SAMPLE_RATE, mono=True)
     length = len(y) / sr
+    progress.set_song_length(length)
     progress.update("decode", length, length)
     warnings: list[str] = []
     if length >= MAX_SECONDS - 0.5:

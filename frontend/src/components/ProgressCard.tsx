@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import type { JobStatus, JobStep } from '../api'
 
 function clock(seconds: number): string {
@@ -18,15 +19,21 @@ function activeDetail(step: JobStep): string {
   return amount(step)
 }
 
-/** Remaining time from the overall rate so far; only once it is meaningful. */
+/** The server's time estimate, rounded so it does not jitter. */
 function remaining(job: JobStatus): string {
-  if (job.progress < 0.08 || job.elapsed < 8) return ''
-  const left = (job.elapsed * (1 - job.progress)) / job.progress
-  return left < 10 ? 'almost done' : `about ${clock(left)} left`
+  if (job.remaining === null) return 'estimating time left…'
+  const left = job.remaining
+  if (left < 10) return 'almost done'
+  if (left < 60) return `about ${Math.ceil(left / 10) * 10} s left`
+  return `about ${clock(Math.ceil(left / 15) * 15)} left`
 }
 
 export function ProgressCard({ job, onCancel }: { job: JobStatus; onCancel: () => void }) {
   const eta = remaining(job)
+  // Never let the bar move backwards when the estimate is revised.
+  const shown = useRef(0)
+  shown.current = Math.max(shown.current, job.progress)
+  const percent = Math.round(shown.current * 100)
   return (
     <div className="card progress-card" aria-live="polite">
       <h2>Listening to your song…</h2>
@@ -36,13 +43,13 @@ export function ProgressCard({ job, onCancel }: { job: JobStatus; onCancel: () =
         </p>
       ) : (
         <>
-          <div className="progress" role="progressbar" aria-valuenow={Math.round(job.progress * 100)} aria-valuemin={0} aria-valuemax={100}>
-            <div style={{ width: `${Math.round(job.progress * 100)}%` }} />
+          <div className="progress" role="progressbar" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
+            <div style={{ width: `${percent}%` }} />
           </div>
           <p className="progress-meta">
-            <span>{Math.round(job.progress * 100)}%</span>
+            <span>{percent}%</span>
             <span>
-              {clock(job.elapsed)} elapsed{eta && ` · ${eta}`}
+              {clock(job.elapsed)} elapsed · {eta}
             </span>
           </p>
           <ol className="steps">

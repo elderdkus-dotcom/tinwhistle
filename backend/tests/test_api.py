@@ -8,7 +8,7 @@ from app.music.model import BeatNote, Melody
 
 
 def fake_analyze(inp, workdir, progress):
-    progress.plan([("notes", "Listening for notes", 1)])
+    progress.plan([("notes", "Listening for notes")])
     progress.start("notes")
     progress.update("notes", 5, 10)
     wav = workdir / "song.wav"
@@ -51,7 +51,8 @@ def test_progress_steps_and_cancel(monkeypatch):
     release = threading.Event()
 
     def slow_analyze(inp, workdir, progress):
-        progress.plan([("separate", "Separating", 1), ("notes", "Listening for notes", 1)])
+        progress.plan([("separate", "Separating"), ("notes", "Listening for notes")])
+        progress.set_song_length(140)
         progress.start("separate")
         progress.update("separate", 73, 140)
         started.set()
@@ -69,7 +70,7 @@ def test_progress_steps_and_cancel(monkeypatch):
     assert data["stage"] == "Separating"
     assert data["steps"][0] == {"key": "separate", "label": "Separating", "state": "active", "done": 73, "total": 140, "unit": "s"}
     assert data["steps"][1]["state"] == "pending"
-    assert 0.25 < data["progress"] < 0.27
+    assert data["remaining"] is not None and 0 < data["progress"] < 1
     assert client.get(f"/api/jobs/{queued_id}").json()["queuePosition"] == 1
 
     client.delete(f"/api/jobs/{queued_id}")
