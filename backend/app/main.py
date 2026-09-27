@@ -62,7 +62,8 @@ async def create_job(
                     raise HTTPException(413, "The file is larger than 60 MB.")
                 out.write(chunk)
         inp.upload, inp.upload_name = dest, file.filename or ""
-    return runner.submit(job_id, workdir, inp).to_json()
+    job = runner.submit(job_id, workdir, inp)
+    return job.to_json(runner.queue_position(job))
 
 
 @app.get("/api/jobs/{job_id}")
@@ -70,6 +71,15 @@ def get_job(job_id: str) -> dict:
     job = runner.jobs.get(job_id)
     if job is None:
         raise HTTPException(404, "Unknown job.")
+    return job.to_json(runner.queue_position(job))
+
+
+@app.delete("/api/jobs/{job_id}")
+def cancel_job(job_id: str) -> dict:
+    job = runner.jobs.get(job_id)
+    if job is None:
+        raise HTTPException(404, "Unknown job.")
+    runner.cancel(job)
     return job.to_json()
 
 

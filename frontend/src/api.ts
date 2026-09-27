@@ -5,13 +5,28 @@ import type { Melody } from './types'
 /** Empty means same origin; set VITE_API_BASE when the app is served elsewhere (e.g. a phone app). */
 export const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, '') ?? ''
 
+export interface JobStep {
+  key: string
+  label: string
+  state: 'pending' | 'active' | 'done'
+  /** Amount processed so far, e.g. seconds of the song (null until known). */
+  done: number | null
+  total: number | null
+  unit: 's' | 'MB' | ''
+}
+
 export interface JobStatus {
   id: string
-  status: 'queued' | 'running' | 'done' | 'error'
+  status: 'queued' | 'running' | 'done' | 'error' | 'cancelled'
   stage: string
   progress: number
   error: string
   result: Melody | null
+  steps: JobStep[]
+  /** Seconds since the analysis started. */
+  elapsed: number
+  /** Jobs ahead of this one; 0 once it is running. */
+  queuePosition: number
 }
 
 export interface JobRequest {
@@ -56,6 +71,10 @@ export async function getJob(id: string): Promise<JobStatus> {
   return json(await fetch(`${API_BASE}/api/jobs/${id}`))
 }
 
+export async function cancelJob(id: string): Promise<void> {
+  await fetch(`${API_BASE}/api/jobs/${id}`, { method: 'DELETE' })
+}
+
 export function audioUrl(id: string): string {
   return `${API_BASE}/api/jobs/${id}/audio`
 }
@@ -70,7 +89,7 @@ export async function waitForJob(
     if (signal?.aborted) throw new Error('Cancelled')
     const status = await getJob(id)
     onProgress(status)
-    if (status.status === 'done' || status.status === 'error') return status
+    if (status.status === 'done' || status.status === 'error' || status.status === 'cancelled') return status
     await new Promise((r) => setTimeout(r, 1000))
   }
 }

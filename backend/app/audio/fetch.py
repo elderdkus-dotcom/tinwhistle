@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Callable
 
 import imageio_ffmpeg
 
@@ -20,12 +21,20 @@ def ffmpeg_exe() -> str:
     return shutil.which("ffmpeg") or imageio_ffmpeg.get_ffmpeg_exe()
 
 
-def download_youtube(url: str, workdir: Path) -> tuple[Path, str]:
+def download_youtube(
+    url: str, workdir: Path, on_progress: Callable[[float, float], None] | None = None
+) -> tuple[Path, str]:
     """Download the audio track of a YouTube (or other yt-dlp supported) URL.
 
-    Returns the downloaded file and the video title.
+    Returns the downloaded file and the video title. `on_progress` receives
+    (megabytes downloaded, total megabytes).
     """
     import yt_dlp
+
+    def hook(d: dict) -> None:
+        if on_progress and d.get("status") == "downloading":
+            total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+            on_progress(d.get("downloaded_bytes", 0) / 1e6, total / 1e6)
 
     opts = {
         "format": "bestaudio/best",
@@ -34,6 +43,7 @@ def download_youtube(url: str, workdir: Path) -> tuple[Path, str]:
         "quiet": True,
         "no_warnings": True,
         "ffmpeg_location": ffmpeg_exe(),
+        "progress_hooks": [hook],
     }
     if shutil.which("node"):
         # yt-dlp needs a JS runtime for YouTube; it only enables deno by default.

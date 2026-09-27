@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Callable
+
 import numpy as np
 
 from app.music.model import NoteEvent
@@ -13,13 +15,17 @@ JUMP_COST_PER_OCTAVE = 1.2  # extra cost for large leaps
 SILENCE_EMISSION = 0.15  # score of choosing "no note" in a frame
 HEIGHT_BONUS_PER_OCTAVE = 0.1  # melodies tend to sit on top of the texture
 MIN_SEGMENT = 0.1  # seconds; shorter fragments are dropped
+PROGRESS_EVERY = 250  # frames (5 s of audio)
 
 
-def extract_melody(events: list[NoteEvent]) -> list[NoteEvent]:
+def extract_melody(
+    events: list[NoteEvent], on_progress: Callable[[float], None] | None = None
+) -> list[NoteEvent]:
     """Pick at most one note at every moment, favouring loud, continuous lines.
 
     Runs a Viterbi search over frames where the states are "silence" or one of
-    the notes sounding in that frame.
+    the notes sounding in that frame. `on_progress` receives the seconds of
+    audio processed so far.
     """
     if not events:
         return []
@@ -47,6 +53,8 @@ def extract_melody(events: list[NoteEvent]) -> list[NoteEvent]:
     prev_scores = np.array([0.0])
     backptr: list[dict[int, int]] = []
     for f in range(n_frames):
+        if on_progress and f % PROGRESS_EVERY == 0:
+            on_progress(f * FRAME)
         states = [-1] + active[f]
         scores = np.empty(len(states))
         ptrs: dict[int, int] = {}

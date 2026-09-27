@@ -593,3 +593,73 @@ button[aria-pressed='true'] {
     fill: transparent !important;
   }
 }
+
+.progress-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.steps {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 16px;
+}
+
+.step {
+  display: flex;
+  gap: 10px;
+  padding: 6px 0;
+  color: var(--muted);
+}
+
+.step.active {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.step.done .step-icon {
+  color: var(--accent);
+}
+
+.step.active .step-icon {
+  color: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.step > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.step-icon {
+  width: 16px;
+  text-align: center;
+}
+
+.step-detail {
+  display: block;
+  font-weight: 400;
+  font-size: 14px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.progress.small {
+  height: 6px;
+  margin: 6px 0 0;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .step.active .step-icon {
+    animation: none;
+  }
+}

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { arrange } from './arrange'
-import { audioUrl, health, submitJob, waitForJob, type JobRequest, type JobStatus } from './api'
+import { audioUrl, cancelJob, health, submitJob, waitForJob, type JobRequest, type JobStatus } from './api'
 import { EditorBar } from './components/EditorBar'
 import { InputPanel } from './components/InputPanel'
+import { ProgressCard } from './components/ProgressCard'
 import { ScoreView } from './components/ScoreView'
 import {
   changeDuration,
@@ -75,6 +76,7 @@ export default function App() {
       const started = await submitJob(req)
       setJob(started)
       const done = await waitForJob(started.id, setJob, abort.current.signal)
+      if (done.status === 'cancelled') throw new Error('Cancelled')
       if (done.status === 'error' || !done.result) throw new Error(done.error || 'Analysis failed.')
       openMelody(done.result, done.id)
       setJob(null)
@@ -260,15 +262,13 @@ export default function App() {
 
       {busy && job && (
         <main className="start">
-          <div className="card progress-card" aria-live="polite">
-            <h2>Listening to your song…</h2>
-            <p>{job.stage}</p>
-            <div className="progress">
-              <div style={{ width: `${Math.round(job.progress * 100)}%` }} />
-            </div>
-            <p className="muted">This takes about as long as the song itself.</p>
-            <button onClick={() => abort.current?.abort()}>Cancel</button>
-          </div>
+          <ProgressCard
+            job={job}
+            onCancel={() => {
+              void cancelJob(job.id)
+              abort.current?.abort()
+            }}
+          />
         </main>
       )}
 
