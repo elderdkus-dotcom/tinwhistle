@@ -28,6 +28,19 @@ Everything after that happens in the browser (`frontend/`), so switching levels,
 
 ## Running it
 
+**The easy way:** install [Python](https://www.python.org/downloads/) (3.10 or newer) and
+[Node.js](https://nodejs.org), then double-click:
+
+- **Windows:** `start.bat`
+- **Mac:** `start.command` (Linux: run `./start.command`)
+
+On the first run it installs everything and builds the app, which takes a few minutes. After that it starts in
+seconds and opens http://localhost:8000 in your browser. It rebuilds automatically after a `git pull`.
+Keep its window open while you use the app, and close it (or press Ctrl+C) to stop.
+To add vocal separation, run it once with `--with-separation`, e.g. `start.bat --with-separation`.
+
+### By hand
+
 Requirements: Python 3.10 or newer (tested on 3.11 and 3.13) and Node 20+. ffmpeg comes bundled through
 `imageio-ffmpeg`. TensorFlow is not needed: the note-detection model runs with onnxruntime.
 
