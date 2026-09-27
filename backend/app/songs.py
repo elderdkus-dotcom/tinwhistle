@@ -18,7 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
-from app.audio import fetch, separate, transcribe, voice
+from app.audio import fetch, separate, timbre, transcribe, voice
 from app.music import melody, rhythm
 from app.progress import Progress
 
@@ -150,8 +150,40 @@ def load_song(song_id: str, workdir: Path, inp: SongInput, progress: Progress) -
     )
 
 
-def analyze_part(song: Song, start: float, end: float, isolate: bool, progress: Progress) -> dict:
-    """Transcribe the melody between `start` and `end` seconds of the song."""
+@dataclass(frozen=True)
+class MelodySource:
+    """Where to take a part's melody from."""
+
+    label: str
+    stems: tuple[str, ...]  # Demucs stems to mix; empty means the whole song
+    voice: bool  # pYIN voice tracker instead of Basic Pitch
+    min_freq: float  # Hz; notes outside this range are ignored
+    max_freq: float
+    sustained: bool = False  # drop notes that fade like plucked strings
+
+
+SOURCES = {
+    "voice": MelodySource("the singer", ("vocals",), True, 65.0, 1050.0),
+    # A D whistle sounds from D5 (587 Hz) to about D7; flutes and fiddles in
+    # their upper range fall here too. Guitar and piano melody notes mostly
+    # sit lower, so the range picks the whistle out even when they overlap.
+    # Demucs may file a whistle under "vocals" or "other", so both are used.
+    # Whistle notes hold steady while guitar notes fade, which separates the
+    # two where their ranges overlap (see app/audio/timbre.py).
+    "whistle": MelodySource("the tin whistle / flute", ("other", "vocals"), False, 540.0, 2700.0, sustained=True),
+    "instrument": MelodySource("the instruments", ("other",), False, 80.0, 2100.0),
+    "mix": MelodySource("the whole band", (), False, 80.0, 2100.0),
+}
+
+
+def analyze_part(song: Song, start: float, end: float, source: str, progress: Progress) -> dict:
+    """Transcribe the melody between `start` and `end` seconds of the song.
+
+    `source` picks the instrument (see SOURCES).
+    """
+    if source not in SOURCES:
+        raise fetch.AudioError(f"Unknown melody source: {source}")
+    src = SOURCES[source]
     start = max(0.0, start)
     end = min(song.duration, end)
     if end - start < MIN_PART_SECONDS:
@@ -162,13 +194,13 @@ def analyze_part(song: Song, start: float, end: float, isolate: bool, progress: 
             "stop the song a bit earlier."
         )
 
-    use_separation = isolate and separate.separation_available()
+    use_separation = bool(src.stems) and separate.separation_available()
     steps = [("notes", "Listening for notes"), ("melody", "Following the melody")]
     if use_separation:
-        steps.insert(0, ("separate", "Separating the vocals from the band"))
+        steps.insert(0, ("separate", f"Separating {src.label} from the rest"))
     progress.plan(
         steps,
-        costs={"notes": VOICE_COST} if use_separation else None,
+        costs={"notes": VOICE_COST} if src.voice else None,
         startup={"separate": 0.0 if separate.model_loaded() else 15.0},
     )
 
@@ -179,27 +211,34 @@ def analyze_part(song: Song, start: float, end: float, isolate: bool, progress: 
     progress.set_song_length(clip_len)
     warnings: list[str] = []
 
-    vocals = None
+    audio, isolated = clip, False
     if use_separation:
         progress.start("separate")
         try:
-            vocals = separate.isolate_vocals(
+            stems = separate.separate_stems(
                 clip, song.sr, lambda done: progress.update("separate", done, clip_len), progress.cancelled
             )
         except separate.SeparationCancelled:
             progress.check()
             raise
-        if vocals is None:
-            warnings.append("No singing found in this part, so the melody was taken from the whole band.")
-    elif isolate:
-        warnings.append("Vocal separation is not installed, so the melody was taken from the whole band.")
+        picked = sum(stems[name] for name in src.stems)
+        if separate.has_enough(picked, clip):
+            audio, isolated = picked, True
+        else:
+            warnings.append(f"Could not hear {src.label} in this part, so the melody was taken from the whole band.")
+    elif src.stems:
+        warnings.append(f"Separation is not installed, so {src.label} was picked out of the whole band by its range and sound only.")
 
     progress.start("notes")
     report = lambda done: progress.update("notes", min(done, clip_len), clip_len)  # noqa: E731
-    if vocals is not None:
-        events = voice.transcribe_voice(vocals, song.sr, report)
+    if src.voice and isolated:
+        events = voice.transcribe_voice(audio, song.sr, report)
     else:
-        events = transcribe.transcribe(clip, song.sr, isolated=False, on_progress=report)
+        events = transcribe.transcribe(
+            audio, song.sr, isolated=isolated, on_progress=report, min_freq=src.min_freq, max_freq=src.max_freq
+        )
+        if src.sustained:
+            events = timbre.keep_sustained(audio, song.sr, events)
 
     progress.start("melody")
     line = melody.extract_melody(events, lambda done: progress.update("melody", min(done, clip_len), clip_len))
@@ -210,12 +249,13 @@ def analyze_part(song: Song, start: float, end: float, isolate: bool, progress: 
     line = [n for n in line if start <= n.start < end]
     notes = rhythm.quantize(line, song.beats)
     if not notes:
-        warnings.append("No melody was found in this part.")
+        warnings.append(f"No melody from {src.label} was found in this part.")
     progress.finish_all()
     return {
         "start": start,
         "end": end,
-        "separated": vocals is not None,
+        "source": source,
+        "separated": isolated,
         "warnings": warnings,
         "notes": [
             {

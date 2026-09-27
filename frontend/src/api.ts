@@ -1,6 +1,6 @@
 /** Client for the analysis backend. */
 
-import type { Song, SourceNote } from './types'
+import type { MelodySource, Song, SourceNote } from './types'
 
 /** Empty means same origin; set VITE_API_BASE when the app is served elsewhere (e.g. a phone app). */
 export const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, '') ?? ''
@@ -19,6 +19,7 @@ export interface JobStep {
 export interface PartResult {
   start: number
   end: number
+  source: MelodySource
   separated: boolean
   warnings: string[]
   notes: SourceNote[]
@@ -73,12 +74,17 @@ export async function loadSong(req: SongRequest): Promise<JobStatus<{ song: Song
   return json(await fetch(`${API_BASE}/api/songs`, { method: 'POST', body: form }))
 }
 
-export async function scorePart(songId: string, start: number, end: number, isolate: boolean): Promise<JobStatus<PartResult>> {
+export async function scorePart(
+  songId: string,
+  start: number,
+  end: number,
+  source: MelodySource,
+): Promise<JobStatus<PartResult>> {
   return json(
     await fetch(`${API_BASE}/api/songs/${songId}/parts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ start, end, isolate }),
+      body: JSON.stringify({ start, end, source }),
     }),
   )
 }

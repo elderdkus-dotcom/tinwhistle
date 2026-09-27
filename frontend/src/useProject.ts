@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { appendPart, arrange, removePart } from './arrange'
-import type { Arrangement, Level, Melody, Part, Song, SourceNote } from './types'
+import type { Arrangement, Level, Melody, MelodySource, Part, Song, SourceNote } from './types'
 
 export interface Project {
   /** The loaded song; null for the built-in demo tunes, which have no audio. */
@@ -15,6 +15,8 @@ export interface Project {
   tempo: number
   beatsPerMeasure: number
   parts: Part[]
+  /** The instrument to take the next part's melody from. */
+  source?: MelodySource
   level: Level
   arrangements: Partial<Record<Level, Arrangement>>
 }
@@ -123,6 +125,10 @@ export function useProject() {
     setProject(null)
   }, [])
 
+  const setSource = useCallback((source: MelodySource) => {
+    setProject((p) => (p ? { ...p, source } : p))
+  }, [])
+
   const setLevel = useCallback((level: Level) => {
     setProject((p) => (p ? withLevel(p, level) : p))
   }, [])
@@ -223,6 +229,7 @@ export function useProject() {
     restore,
     close,
     setLevel,
+    setSource,
     addPart,
     keepPart,
     discardPart,

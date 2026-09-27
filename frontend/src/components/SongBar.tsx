@@ -1,5 +1,5 @@
 import type { JobStatus } from '../api'
-import type { Part, Song } from '../types'
+import { MELODY_SOURCES, type MelodySource, type Part, type Song } from '../types'
 import type { SongPlayer } from '../useSongPlayer'
 import { PartProgress, clock } from './ProgressCard'
 
@@ -14,10 +14,10 @@ interface Props {
   scoredUntil: number
   draft: Part | undefined
   partJob: JobStatus | null
-  isolate: boolean
+  source: MelodySource
   separationAvailable: boolean | null
   whistleAlong: boolean
-  onIsolate: (on: boolean) => void
+  onSource: (source: MelodySource) => void
   onWhistleAlong: (on: boolean) => void
   onScore: (start: number, end: number) => void
   onSkip: (start: number, end: number) => void
@@ -27,6 +27,10 @@ interface Props {
   onUndoLast: () => void
   onPlayDraftWhistle: () => void
   onPlaySong: (from?: number, until?: number) => void
+}
+
+function sourceLabel(source: MelodySource): string {
+  return MELODY_SOURCES.find((s) => s.value === source)?.label ?? source
 }
 
 function partClass(p: Part): string {
@@ -93,8 +97,10 @@ export function SongBar(props: Props) {
             <p>
               <strong>
                 New part {clock(draft.start)}–{clock(draft.end)}
-              </strong>{' '}
-              is tinted blue in the score. Listen and compare, then keep it or discard it.
+              </strong>
+              {draft.source && ` (from the ${sourceLabel(draft.source).toLowerCase()})`} is tinted blue in the score.
+              Listen and compare, then keep it or discard it. Wrong instrument? Discard it, change “Melody from” and
+              score it again.
             </p>
             {draft.warnings.map((w) => (
               <p key={w} className="warning">
@@ -139,14 +145,22 @@ export function SongBar(props: Props) {
               </p>
             )}
             <div className="group options-row">
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={props.isolate && props.separationAvailable !== false}
-                  disabled={props.separationAvailable === false}
-                  onChange={(e) => props.onIsolate(e.target.checked)}
-                />
-                <span>Isolate the singer{props.separationAvailable === false ? ' (not installed)' : ''}</span>
+              <label className="source-picker">
+                <span>Melody from</span>
+                <select
+                  value={props.source}
+                  onChange={(e) => props.onSource(e.target.value as MelodySource)}
+                  title={MELODY_SOURCES.find((s) => s.value === props.source)?.hint}
+                >
+                  {MELODY_SOURCES.map((s) => (
+                    <option key={s.value} value={s.value} title={s.hint}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+                {props.separationAvailable === false && props.source !== 'mix' && (
+                  <span className="muted">(separation not installed: less accurate)</span>
+                )}
               </label>
               <label className="check">
                 <input type="checkbox" checked={props.whistleAlong} onChange={(e) => props.onWhistleAlong(e.target.checked)} />

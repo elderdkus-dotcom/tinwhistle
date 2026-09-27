@@ -7,6 +7,11 @@ fingering chart (filled and open holes) under every note. It is a web app, built
 
 1. **Load the song.** The app downloads and decodes it, and finds the beat and bar lines.
 2. **Play the song and pause** where you want the next part to end, then press **Score**. For an instrumental intro, press **Skip** instead.
+   Use **Melody from** to choose what to score:
+   - **Singer**
+   - **Tin whistle / flute:** a high instrument that holds its notes. The app ignores plucked guitar and piano notes, even in the same range.
+   - **Other instrument**
+   - **Whole band**
 3. **Review the new part.** It is tinted blue in the score. Play the song and the whistle version to compare, then press **Keep** or **Discard**.
 4. **Carry on** from where the score ends.
 
@@ -26,8 +31,10 @@ Other features:
 
 ```
 load:  song ─► download / decode ─► beat grid + bar lines (librosa)
-part:  clip ─► isolate vocals (Demucs) ─► voice pitch contour (pYIN) ─► notes ─► quantize onto the song's grid
-                   └─ no vocals ─► Basic Pitch on the full mix ─► pick the melody line (Viterbi)
+part:  clip ─► separate stems (Demucs) ─┬─ singer:  vocals ─► voice pitch contour (pYIN) ─► notes
+                                        ├─ whistle: other+vocals ─► Basic Pitch in 540–2700 Hz ─► drop fading (plucked) notes
+                                        └─ other instrument / whole band ─► Basic Pitch
+       ─► pick the melody line (Viterbi) ─► quantize onto the song's grid
 browser: parts ─► transpose for the whistle ─► level arrangement ─► VexFlow staff + fingering charts
 ```
 

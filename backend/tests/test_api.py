@@ -50,7 +50,7 @@ def test_load_song_round_trip(monkeypatch, tmp_path):
 def test_part_analysis_on_real_audio(tmp_path):
     song = fake_song(tmp_path)
     client = TestClient(main.app)
-    job = client.post(f"/api/songs/{song.id}/parts", json={"start": 1.0, "end": 5.0, "isolate": False}).json()
+    job = client.post(f"/api/songs/{song.id}/parts", json={"start": 1.0, "end": 5.0, "source": "mix"}).json()
     data = wait(client, job["id"])
     assert data["status"] == "done", data["error"]
     notes = data["result"]["notes"]
@@ -65,7 +65,7 @@ def test_rejects_bad_requests(tmp_path):
     assert client.post("/api/songs", data={"url": "file:///etc/passwd"}).status_code == 400
     assert client.post("/api/songs/nope/parts", json={"start": 0, "end": 5}).status_code == 404
     song = fake_song(tmp_path, "s2")
-    job = client.post(f"/api/songs/{song.id}/parts", json={"start": 2, "end": 2.5, "isolate": False}).json()
+    job = client.post(f"/api/songs/{song.id}/parts", json={"start": 2, "end": 2.5, "source": "mix"}).json()
     assert "too short" in wait(client, job["id"])["error"]
 
 

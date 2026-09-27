@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from app.audio.separate import separation_available
 from app.jobs import Job, JobRunner
-from app.songs import SongInput, SongStore, analyze_part, load_song
+from app.songs import SOURCES, SongInput, SongStore, analyze_part, load_song
 
 MAX_UPLOAD_BYTES = 60 * 1024 * 1024
 FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
@@ -77,7 +77,8 @@ async def create_song(
 class PartRequest(BaseModel):
     start: float
     end: float
-    isolate: bool = True
+    # Which instrument carries the melody: voice | whistle | instrument | mix
+    source: str = "voice"
 
 
 @app.post("/api/songs/{song_id}/parts")
@@ -85,7 +86,9 @@ def create_part(song_id: str, req: PartRequest) -> dict:
     song = songs.get(song_id)
     if song is None:
         raise HTTPException(404, "This song is no longer on the server; please load it again.")
-    return job_json(runner.submit("part", lambda progress: analyze_part(song, req.start, req.end, req.isolate, progress)))
+    if req.source not in SOURCES:
+        raise HTTPException(400, f"Unknown melody source: {req.source}")
+    return job_json(runner.submit("part", lambda progress: analyze_part(song, req.start, req.end, req.source, progress)))
 
 
 @app.get("/api/songs/{song_id}")

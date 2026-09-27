@@ -51,13 +51,19 @@ def _run_model(y: np.ndarray, sr: int, on_progress: Callable[[float], None] | No
 
 
 def transcribe(
-    y: np.ndarray, sr: int, isolated: bool, on_progress: Callable[[float], None] | None = None
+    y: np.ndarray,
+    sr: int,
+    isolated: bool,
+    on_progress: Callable[[float], None] | None = None,
+    min_freq: float = 80.0,
+    max_freq: float = 2100.0,
 ) -> list[NoteEvent]:
     """Transcribe mono audio into (possibly overlapping) note events.
 
-    With an isolated vocal stem the thresholds can be lower, because nearly
-    everything left in the signal is the melody. `on_progress` receives the
-    seconds of audio processed so far.
+    With an isolated stem the thresholds can be lower, because most of what
+    is left is the melody. Only notes between `min_freq` and `max_freq` (Hz)
+    are kept, which is how one instrument is picked out by its range.
+    `on_progress` receives the seconds of audio processed so far.
     """
     import basic_pitch.note_creation as infer
     from basic_pitch.constants import AUDIO_SAMPLE_RATE, FFT_HOP
@@ -69,9 +75,8 @@ def transcribe(
         onset_thresh=0.5 if isolated else 0.6,
         frame_thresh=0.3 if isolated else 0.4,
         min_note_len=int(np.round(minimum_note_length / 1000 * (AUDIO_SAMPLE_RATE / FFT_HOP))),
-        # Roughly the range of a singing voice or lead instrument.
-        min_freq=80.0,
-        max_freq=2100.0,
+        min_freq=min_freq,
+        max_freq=max_freq,
         multiple_pitch_bends=False,
         melodia_trick=True,
     )

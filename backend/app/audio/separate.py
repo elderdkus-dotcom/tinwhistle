@@ -1,4 +1,4 @@
-"""Optional source separation with Demucs, to isolate the sung melody.
+"""Optional source separation with Demucs, to isolate the melody's instrument.
 
 The model is loaded once and kept in memory, so separating a short part of a
 song only costs the separation itself.
@@ -12,9 +12,9 @@ from typing import Callable
 
 import numpy as np
 
-# Below this vocal-to-mix energy ratio the part is treated as instrumental
-# (e.g. an intro or a trad tune) and the full mix is transcribed instead.
-MIN_VOCAL_ENERGY_RATIO = 0.08
+# Below this stem-to-mix energy ratio a stem is treated as empty (e.g. no
+# singing in an instrumental part) and the full mix is used instead.
+MIN_STEM_ENERGY_RATIO = 0.08
 MODEL_NAME = "htdemucs"
 
 _model = None
@@ -44,13 +44,13 @@ def _get_model():
         return _model
 
 
-def isolate_vocals(
+def separate_stems(
     y: np.ndarray,
     sr: int,
     on_progress: Callable[[float], None] | None = None,
     cancelled: threading.Event | None = None,
-) -> np.ndarray | None:
-    """Return the vocal stem of mono audio `y` (same rate), or None if there are no real vocals.
+) -> dict[str, np.ndarray]:
+    """Split mono audio `y` into Demucs's stems (drums, bass, other, vocals), same rate.
 
     `on_progress` receives the seconds of audio separated so far. Setting
     `cancelled` stops the separation (raises SeparationCancelled).
@@ -76,9 +76,13 @@ def isolate_vocals(
 
     with torch.no_grad():
         sources = apply_model(model, mix[None], shifts=1, split=True, overlap=0.25, callback=callback)[0]
-    vocals = sources[model.sources.index("vocals")] * std + mean
-    vocals = vocals.mean(dim=0).numpy()
-    vocals = librosa.resample(vocals, orig_sr=model.samplerate, target_sr=sr)[: len(y)]
-    if float(np.mean(vocals**2)) / (float(np.mean(y**2)) + 1e-12) < MIN_VOCAL_ENERGY_RATIO:
-        return None
-    return vocals.astype(np.float32)
+    stems = {}
+    for name, source in zip(model.sources, sources):
+        mono = (source * std + mean).mean(dim=0).numpy()
+        stems[name] = librosa.resample(mono, orig_sr=model.samplerate, target_sr=sr)[: len(y)].astype(np.float32)
+    return stems
+
+
+def has_enough(stem: np.ndarray, mix: np.ndarray) -> bool:
+    """Whether a stem holds a real part of the music rather than leakage."""
+    return float(np.mean(stem**2)) / (float(np.mean(mix**2)) + 1e-12) >= MIN_STEM_ENERGY_RATIO

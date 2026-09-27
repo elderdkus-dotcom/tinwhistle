@@ -28,7 +28,7 @@ import {
 } from './editor'
 import { Player } from './player'
 import { posToTime, timeToPos } from './sync'
-import { LEVELS, type Level, type ScoreNote, type Song } from './types'
+import { LEVELS, type Level, type MelodySource, type ScoreNote, type Song } from './types'
 import { draftPart, scoredUntil, useProject, type Project } from './useProject'
 import { useSongPlayer } from './useSongPlayer'
 import './styles.css'
@@ -40,9 +40,12 @@ const LEVEL_LABELS: Record<Level, { name: string; blurb: string }> = {
 }
 
 function formatShift(semitones: number): string {
-  if (semitones === 0) return 'kept in the original key'
+  // Moving by whole octaves keeps the key (e.g. a whistle part, which is
+  // written an octave below how it sounds).
+  if (semitones % 12 === 0) return 'in the original key'
   const dir = semitones > 0 ? 'up' : 'down'
-  return `moved ${dir} ${Math.abs(semitones)} semitone${Math.abs(semitones) === 1 ? '' : 's'}`
+  const n = Math.abs(semitones) % 12
+  return `moved ${dir} ${n} semitone${n === 1 ? '' : 's'}${Math.abs(semitones) > 12 ? ' and an octave' : ''}`
 }
 
 /** The note sounding at a score position, if any. */
@@ -61,6 +64,7 @@ export default function App() {
     restore,
     close,
     setLevel,
+    setSource,
     addPart,
     keepPart,
     discardPart,
@@ -81,7 +85,6 @@ export default function App() {
   const [tempoPercent, setTempoPercent] = useState(100)
   const [countIn, setCountIn] = useState(true)
   const [showNames, setShowNames] = useState(true)
-  const [isolate, setIsolate] = useState(true)
   const [whistleAlong, setWhistleAlong] = useState(false)
   const player = useRef(new Player())
   const abort = useRef<AbortController | null>(null)
@@ -100,6 +103,7 @@ export default function App() {
     if (song) void songAvailable(song.id).then((ok) => setSongMissing(!ok))
   }, [song])
 
+  const source: MelodySource = project?.source ?? 'voice'
   const loading = loadJob !== null && (loadJob.status === 'queued' || loadJob.status === 'running')
   const draft = project ? draftPart(project) : undefined
   const until = project ? scoredUntil(project) : 0
@@ -151,13 +155,21 @@ export default function App() {
     setError('')
     abort.current = new AbortController()
     try {
-      const started = await scorePart(song.id, start, end, isolate && separation !== false)
+      const started = await scorePart(song.id, start, end, source)
       setPartJob(started)
       const done = await waitForJob<PartResult>(started.id, setPartJob, abort.current.signal)
       if (done.status === 'cancelled') throw new Error('Cancelled')
       if (done.status === 'error' || !done.result) throw new Error(done.error || 'Scoring this part failed.')
       const r = done.result
-      addPart({ start: r.start, end: r.end, kind: 'scored', notes: r.notes, separated: r.separated, warnings: r.warnings })
+      addPart({
+        start: r.start,
+        end: r.end,
+        kind: 'scored',
+        notes: r.notes,
+        separated: r.separated,
+        warnings: r.warnings,
+        source: r.source,
+      })
     } catch (e) {
       const message = (e as Error).message
       if (message !== 'Cancelled') setError(message)
@@ -439,10 +451,10 @@ export default function App() {
               scoredUntil={until}
               draft={draft}
               partJob={partJob}
-              isolate={isolate}
+              source={source}
               separationAvailable={separation}
               whistleAlong={whistleAlong}
-              onIsolate={setIsolate}
+              onSource={setSource}
               onWhistleAlong={setWhistleAlong}
               onScore={(s, e) => void score(s, e)}
               onSkip={skip}

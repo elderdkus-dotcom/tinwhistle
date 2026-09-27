@@ -29,6 +29,16 @@ export interface Melody {
   notes: SourceNote[]
 }
 
+/** Which instrument carries the melody (backend/app/songs.py: SOURCES). */
+export type MelodySource = 'voice' | 'whistle' | 'instrument' | 'mix'
+
+export const MELODY_SOURCES: { value: MelodySource; label: string; hint: string }[] = [
+  { value: 'voice', label: 'Singer', hint: 'The sung melody' },
+  { value: 'whistle', label: 'Tin whistle / flute', hint: 'A whistle, flute or other high, held-note instrument' },
+  { value: 'instrument', label: 'Other instrument', hint: 'Guitar, piano, fiddle… (everything except voice, drums and bass)' },
+  { value: 'mix', label: 'Whole band', hint: 'The highest line of the whole recording' },
+]
+
 /**
  * A stretch of the song the user has dealt with: scored (with notes) or
  * skipped (e.g. an instrumental intro). A new part is a draft until kept.
@@ -42,6 +52,8 @@ export interface Part {
   notes: SourceNote[]
   separated: boolean
   warnings: string[]
+  /** What the melody was taken from (scored parts only). */
+  source?: MelodySource
 }
 
 export type Level = 'beginner' | 'intermediate' | 'expert'
