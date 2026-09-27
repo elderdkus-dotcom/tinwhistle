@@ -12,13 +12,15 @@ _model_lock = threading.Lock()
 
 
 def _get_model():
+    """Load Basic Pitch once, preferring the ONNX model (no TensorFlow needed)."""
     global _model
     with _model_lock:
         if _model is None:
-            from basic_pitch import ICASSP_2022_MODEL_PATH
+            from basic_pitch import ICASSP_2022_MODEL_PATH, ONNX_PRESENT, FilenameSuffix, build_icassp_2022_model_path
             from basic_pitch.inference import Model
 
-            _model = Model(ICASSP_2022_MODEL_PATH)
+            path = build_icassp_2022_model_path(FilenameSuffix.onnx) if ONNX_PRESENT else ICASSP_2022_MODEL_PATH
+            _model = Model(path)
         return _model
 
 

@@ -138,7 +138,7 @@ def align_to_measures(
     """
     if not notes:
         return []
-    first = np.floor(notes[0].start)
+    first = float(np.floor(notes[0].start))
 
     def note_weight(offset: int) -> float:
         # Notes that start on a downbeat for this offset, weighted by length.

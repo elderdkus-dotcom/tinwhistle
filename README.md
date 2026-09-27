@@ -28,12 +28,15 @@ Everything after that happens in the browser (`frontend/`), so switching levels,
 
 ## Running it
 
-Requirements: Python 3.10+ and Node 20+. ffmpeg comes bundled through `imageio-ffmpeg`.
+Requirements: Python 3.10 or newer (tested on 3.11 and 3.13) and Node 20+. ffmpeg comes bundled through
+`imageio-ffmpeg`. TensorFlow is not needed: the note-detection model runs with onnxruntime.
 
 ```bash
 # Backend
-python -m venv .venv && source .venv/bin/activate
+python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -r backend/requirements-dev.txt
+# Basic Pitch pins a TensorFlow that no longer installs, so skip its dependencies:
+pip install --no-deps basic-pitch==0.4.0
 # Optional, but much better for songs with a band (CPU torch keeps it small):
 pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
 pip install -r backend/requirements-separation.txt
