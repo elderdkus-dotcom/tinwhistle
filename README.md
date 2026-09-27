@@ -1,30 +1,39 @@
 # Tin Whistle Scores
 
 Turn a song (a YouTube link or an MP3) into sheet music for the **D tin whistle**, with a
-fingering chart (filled and open holes) under every note. The app is a web app built to become a phone app later.
+fingering chart (filled and open holes) under every note. It is a web app, built so it can become a phone app later.
 
+**You build the score part by part while listening:**
+
+1. **Load the song.** The app downloads and decodes it, and finds the beat and bar lines.
+2. **Play the song and pause** where you want the next part to end, then press **Score**. For an instrumental intro, press **Skip** instead.
+3. **Review the new part.** It is tinted blue in the score. Play the song and the whistle version to compare, then press **Keep** or **Discard**.
+4. **Carry on** from where the score ends.
+
+While the song plays, the note being sung is highlighted in the score. The timeline shows which stretches are already scored.
+
+Other features:
 - **Automatic transposition** into a key the whistle can play (usually D or G major).
 - **Three levels:**
   - **Beginner:** natural notes only, no sixteenths, slower tempo.
   - **Intermediate:** both octaves, C natural, full rhythm.
   - **Expert:** half-holed notes, cuts and rolls.
-- **Playback** with a whistle-like synth, speed control, count-in, and the current note highlighted. You can also play the original song for comparison.
-- **Editing:** tap a note to change its pitch or length, insert or delete notes, or add ornaments. Undo and redo work, and there are keyboard shortcuts on desktop.
+- **Whistle playback:** speed control, count-in, and a "whistle along" option that plays the score in time with the song.
+- **Editing:** tap a note to change its pitch or length, insert or delete notes, add ornaments, or play the song from that note. Undo and redo work.
 - **Output:** print or save as PDF. You can save and reopen projects as `.whistle.json` files.
 
 ## How it works
 
 ```
-song ──► download / decode ──► (optional) isolate vocals ──► transcribe notes
-     (yt-dlp, ffmpeg)          (Demucs)                      (Spotify Basic Pitch)
-                                                                    │
-browser ◄── melody JSON ◄── bar lines ◄── quantize to beats ◄── pick the melody line
-   │                         (chords, bass)   (librosa beat tracking)   (Viterbi over notes)
-   └─► transpose for the whistle ─► level arrangement ─► VexFlow staff + fingering charts
+load:  song ─► download / decode ─► beat grid + bar lines (librosa)
+part:  clip ─► isolate vocals (Demucs) ─► voice pitch contour (pYIN) ─► notes ─► quantize onto the song's grid
+                   └─ no vocals ─► Basic Pitch on the full mix ─► pick the melody line (Viterbi)
+browser: parts ─► transpose for the whistle ─► level arrangement ─► VexFlow staff + fingering charts
 ```
 
-The server (`backend/`) does the heavy audio work and returns the melody as notes in beats.
-Everything after that happens in the browser (`frontend/`), so switching levels, editing and playback are instant. The same client can later run inside a phone app shell such as Capacitor.
+- **Singing:** it tracks the voice's pitch contour with pYIN and cuts it into notes, ignoring vibrato and slides between notes. This avoids the split and mis-pitched notes that general-purpose transcription produces on vocals.
+- **Shared beat grid:** every part is placed on the whole song's beat grid, so the parts join into one continuous score. Each note remembers where it was heard, which is what drives the playback highlighting.
+- **Server and browser:** the server (`backend/`) does the audio work. Arranging, editing and playback run in the browser (`frontend/`).
 
 ## Running it
 
@@ -73,7 +82,8 @@ cd frontend && npm test
 
 ## Known limits
 
-- Transcribing audio is approximate. Expect to fix some notes, especially in busy mixes; vocal isolation helps a lot.
-- Only 2/4, 3/4 and 4/4 are supported. The time signature is chosen by the user (default 4/4) and is not detected.
-- Analysis takes roughly as long as the song on a CPU when vocal isolation is on. Songs are capped at 6 minutes.
+- Transcribing audio is approximate. Expect to fix some notes, especially without vocal isolation or in busy mixes.
+- Only 2/4, 3/4 and 4/4 are supported. The time signature is chosen when loading (default 4/4) and is not detected.
+- With vocal isolation on, a part takes roughly its own length to score on a laptop CPU. Parts are capped at 2:30.
+- The server keeps the last 5 songs in memory. After a restart, load the song again to keep scoring.
 - Only the D whistle is supported so far.

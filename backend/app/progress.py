@@ -17,8 +17,8 @@ from dataclasses import dataclass, field
 STEP_COSTS = {
     "decode": 0.003,
     "separate": 0.45,
-    "beats": 0.015,
-    "notes": 0.015,
+    "beats": 0.02,
+    "notes": 0.015,  # Basic Pitch; the pYIN voice tracker costs about 0.06
     "melody": 0.005,
 }
 # Fixed start-up time (loading models), in seconds at the reference speed.
@@ -47,14 +47,12 @@ class Step:
     finished: float | None = None
     # Time from starting the step to its first progress report (model loading).
     first_report: float | None = None
-
-    @property
-    def cost(self) -> float | None:
-        return STEP_COSTS.get(self.key)
+    cost: float | None = None
+    startup: float = 0.0
 
     def expected(self, song_seconds: float, speed: float) -> float:
         """Predicted duration of the whole step, in seconds."""
-        return ((self.cost or 0.0) * song_seconds + STEP_STARTUP.get(self.key, 0.0)) * speed
+        return ((self.cost or 0.0) * song_seconds + self.startup) * speed
 
     def to_json(self) -> dict:
         return {
@@ -81,9 +79,19 @@ class Progress:
     def now(self) -> float:
         return self.clock()  # type: ignore[operator]
 
-    def plan(self, steps: list[tuple[str, str]]) -> None:
+    def plan(
+        self,
+        steps: list[tuple[str, str]],
+        costs: dict[str, float] | None = None,
+        startup: dict[str, float] | None = None,
+    ) -> None:
+        """Set the steps; `costs`/`startup` override the defaults for this job."""
+        costs = {**STEP_COSTS, **(costs or {})}
+        startup = {**STEP_STARTUP, **(startup or {})}
         with self.lock:
-            self.steps = [Step(key, label) for key, label in steps]
+            self.steps = [
+                Step(key, label, cost=costs.get(key), startup=startup.get(key, 0.0)) for key, label in steps
+            ]
             self.started = self.now()
 
     def _step(self, key: str) -> Step:

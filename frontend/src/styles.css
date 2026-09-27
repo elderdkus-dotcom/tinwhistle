@@ -12,7 +12,8 @@
   --error-bg: #fde4e1;
   --error-text: #8a1f11;
   --select: rgba(31, 95, 74, 0.16);
-  --playing: rgba(230, 160, 20, 0.3);
+  --playing: rgba(230, 160, 20, 0.35);
+  --draft: rgba(70, 130, 220, 0.13);
   --paper: #ffffff;
   --ink: #111111;
   --radius: 12px;
@@ -455,6 +456,15 @@ button[aria-pressed='true'] {
   fill: #3b4a43;
 }
 
+.score-svg .multirest {
+  font: 600 13px system-ui, sans-serif;
+  fill: var(--ink);
+}
+
+.note-highlight.draft {
+  fill: var(--draft);
+}
+
 .score-svg .tap-target {
   fill: transparent;
   stroke: none;
@@ -661,5 +671,186 @@ button[aria-pressed='true'] {
 @media (prefers-reduced-motion: reduce) {
   .step.active .step-icon {
     animation: none;
+  }
+}
+
+/* --- Song bar: play the song and score it part by part --- */
+
+.song-bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin: 12px 0;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+}
+
+.transport {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+button.round {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 16px;
+}
+
+.time {
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.timeline {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+}
+
+.timeline .track {
+  position: absolute;
+  inset: 9px 0;
+  border-radius: 7px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.timeline .seg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+
+.timeline .seg.kept {
+  background: var(--accent);
+  opacity: 0.75;
+}
+
+.timeline .seg.draft {
+  background: rgb(70, 130, 220);
+  opacity: 0.8;
+}
+
+.timeline .seg.skipped {
+  background: repeating-linear-gradient(135deg, var(--border) 0 4px, transparent 4px 8px);
+}
+
+.timeline .seg.pending {
+  background: rgba(230, 160, 20, 0.35);
+}
+
+.timeline .marker {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--accent);
+}
+
+.timeline .playhead {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 3px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: var(--text);
+}
+
+.timeline input[type='range'] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.timeline:focus-within .track {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.song-status {
+  margin-top: 10px;
+}
+
+.song-status p {
+  margin: 0 0 8px;
+}
+
+.options-row {
+  margin-top: 4px;
+  gap: 4px 16px;
+}
+
+.part-progress {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+
+.part-progress-text {
+  flex: 1 1 100%;
+  font-size: 15px;
+}
+
+.part-progress .progress {
+  flex: 1;
+  margin: 0;
+}
+
+.score-controls {
+  margin-top: 4px;
+}
+
+.empty-score h3 {
+  margin: 0 0 6px;
+}
+
+.empty-score p {
+  margin: 0;
+}
+
+.note-highlight {
+  scroll-margin: 200px 0 120px;
+}
+
+@media (max-width: 560px) {
+  .song-bar {
+    margin: 8px -8px;
+    padding: 10px;
+  }
+  .transport {
+    flex-wrap: wrap;
+  }
+  .timeline {
+    flex-basis: 100%;
+    order: 3;
+  }
+  .song-status .group button {
+    flex: 1 1 auto;
+  }
+}
+
+@media print {
+  .song-bar,
+  .score-controls,
+  .empty-score {
+    display: none !important;
   }
 }

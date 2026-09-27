@@ -22,6 +22,8 @@ export interface Token {
 export interface Measure {
   index: number
   tokens: Token[]
+  /** Set when this measure stands for several empty ones (a multi-bar rest). */
+  restMeasures?: number
 }
 
 const VALUES = [16, 12, 8, 6, 4, 3, 2, 1]
@@ -104,5 +106,29 @@ export function toMeasures(notes: ScoreNote[], beatsPerMeasure: number): Measure
     cursor = e
   }
   if (cursor < count * perMeasure) push(cursor, count * perMeasure, true, rest)
-  return measures
+  return compactRests(measures)
+}
+
+const isEmpty = (m: Measure) => m.tokens.every((t) => t.kind === 'rest')
+
+/**
+ * Drop the empty measures before the first note (e.g. an unscored intro) and
+ * show longer runs of empty measures as one multi-bar rest.
+ */
+function compactRests(measures: Measure[]): Measure[] {
+  const first = measures.findIndex((m) => !isEmpty(m))
+  if (first < 0) return measures.slice(0, 1)
+  const out: Measure[] = []
+  for (let i = first; i < measures.length; ) {
+    let j = i
+    while (j < measures.length && isEmpty(measures[j])) j++
+    if (j - i >= 2) {
+      out.push({ ...measures[i], restMeasures: j - i })
+      i = j
+    } else {
+      out.push(measures[i])
+      i += 1
+    }
+  }
+  return out
 }

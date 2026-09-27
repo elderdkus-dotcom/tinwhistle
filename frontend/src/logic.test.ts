@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addOrnaments, arrange, chooseTranspose, fitPitch, keySignature, simplifyRhythm } from './arrange'
+import { addOrnaments, appendPart, arrange, chooseTranspose, fitPitch, keySignature, removePart, simplifyRhythm } from './arrange'
 import { splitSpan, toMeasures } from './notation'
 import type { Melody, ScoreNote } from './types'
 import { fingering, noteName, register, stepScale, technique } from './whistle'
@@ -7,12 +7,7 @@ import { fingering, noteName, register, stepScale, technique } from './whistle'
 const melody = (pitches: number[], dur = 1): Melody => ({
   tempo: 100,
   beatsPerMeasure: 4,
-  key: '',
   notes: pitches.map((pitch, i) => ({ pitch, start: i * dur, duration: dur })),
-  durationSeconds: 10,
-  title: '',
-  separated: false,
-  warnings: [],
 })
 
 describe('whistle', () => {
@@ -98,6 +93,26 @@ describe('arrange', () => {
     expect(beginner.tempo).toBeLessThan(expert.tempo)
   })
 
+  it('appends and removes parts, keeping key and edits', () => {
+    const first = arrange(melody([60, 62, 64, 65]), 'intermediate')
+    expect(first.transpose).toBe(2)
+    const edited = { ...first, notes: first.notes.map((n, i) => (i === 0 ? { ...n, pitch: 74 } : n)) }
+    // The new part overlaps the last note, which gets cut short.
+    const next = appendPart(edited, 'p2', [
+      { pitch: 67, start: 3.5, duration: 1 },
+      { pitch: 69, start: 4.5, duration: 1 },
+    ])
+    expect(next.notes.map((n) => [n.pitch, n.start, n.duration, n.part ?? ''])).toEqual([
+      [74, 0, 1, ''],
+      [64, 1, 1, ''],
+      [66, 2, 1, ''],
+      [67, 3, 0.5, ''],
+      [69, 3.5, 1, 'p2'],
+      [71, 4.5, 1, 'p2'],
+    ])
+    expect(removePart(next, 'p2').notes).toHaveLength(4)
+  })
+
   it('picks a G major key signature for C natural tunes', () => {
     expect(keySignature([{ id: 'a', pitch: 72, start: 0, duration: 1 }])).toBe('G')
     expect(keySignature([{ id: 'a', pitch: 73, start: 0, duration: 1 }])).toBe('D')
@@ -132,5 +147,20 @@ describe('notation', () => {
     const m1 = measures[1].tokens
     expect(m1[0]).toMatchObject({ kind: 'note', sixteenths: 4, continuation: true, noteId: 'b' })
     expect(m1.slice(1).map((t) => t.kind)).toEqual(['rest', 'rest'])
+  })
+
+  it('skips leading empty bars and collapses long gaps', () => {
+    const measures = toMeasures(
+      [
+        { id: 'a', pitch: 62, start: 16, duration: 4 }, // bar 5 (bars 1-4 empty)
+        { id: 'b', pitch: 64, start: 36, duration: 4 }, // bar 10 (bars 6-9 empty)
+      ],
+      4,
+    )
+    expect(measures.map((m) => [m.index, m.restMeasures ?? 0])).toEqual([
+      [4, 0],
+      [5, 4],
+      [9, 0],
+    ])
   })
 })

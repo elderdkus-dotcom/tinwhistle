@@ -10,6 +10,8 @@ interface Props {
   onDelete: () => void
   onOrnament: (o: Ornament) => void
   onPlayFrom: () => void
+  /** Play the original song from where this note was heard. */
+  onPlaySongFrom?: () => void
   onNavigate: (dir: 1 | -1) => void
   onClose: () => void
 }
@@ -25,7 +27,7 @@ const TECHNIQUE_HINT = {
   'half-hole': 'half-hole the marked hole',
 }
 
-export function EditorBar({ note, onPitch, onDuration, onInsert, onDelete, onOrnament, onPlayFrom, onNavigate, onClose }: Props) {
+export function EditorBar({ note, onPitch, onDuration, onInsert, onDelete, onOrnament, onPlayFrom, onPlaySongFrom, onNavigate, onClose }: Props) {
   const hint = TECHNIQUE_HINT[technique(note.pitch)]
   return (
     <div className="editor-bar" role="toolbar" aria-label="Edit note">
@@ -59,7 +61,12 @@ export function EditorBar({ note, onPitch, onDuration, onInsert, onDelete, onOrn
         <div className="group">
           <button aria-pressed={note.ornament === 'cut'} onClick={() => onOrnament('cut')} title="Cut: a quick grace note above">Cut</button>
           <button aria-pressed={note.ornament === 'roll'} onClick={() => onOrnament('roll')} title="Roll: note, cut, note, tap, note">Roll</button>
-          <button onClick={onPlayFrom} title="Play from this note">▶ From here</button>
+          <button onClick={onPlayFrom} title="Play the whistle score from this note">▶ Whistle here</button>
+          {onPlaySongFrom && (
+            <button onClick={onPlaySongFrom} title="Play the original song from this note">
+              ▶ Song here
+            </button>
+          )}
         </div>
       </div>
     </div>

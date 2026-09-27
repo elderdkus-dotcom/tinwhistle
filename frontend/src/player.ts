@@ -12,6 +12,13 @@ function frequency(pitch: number): number {
 export interface PlayOptions {
   tempo: number
   fromBeat?: number
+  /** Stop at this score position (e.g. the end of a part). */
+  untilBeat?: number
+  /**
+   * Song time (seconds) of a score position. When given, notes follow the
+   * song's own timing instead of a steady tempo, so they line up with it.
+   */
+  timing?: (beat: number) => number
   countIn?: boolean
   beatsPerMeasure: number
   onNote?: (id: string | null) => void
@@ -100,23 +107,31 @@ export class Player {
     void ctx.resume()
     const spb = 60 / options.tempo
     const from = options.fromBeat ?? 0
+    const until = options.untilBeat ?? Infinity
     const lead = options.countIn ? options.beatsPerMeasure * spb : 0
     const t0 = ctx.currentTime + 0.1 + lead
     if (options.countIn) {
       for (let b = 0; b < options.beatsPerMeasure; b++) this.click(t0 - lead + b * spb, b === 0)
     }
-    const upcoming = notes.filter((n) => n.start + n.duration > from + 1e-9).sort((a, b) => a.start - b.start)
-    for (const n of upcoming) {
-      const start = Math.max(n.start, from)
-      this.playNote(n, t0 + (start - from) * spb, (n.start + n.duration - start) * spb)
-    }
-    const endBeat = upcoming.length ? Math.max(...upcoming.map((n) => n.start + n.duration)) : from
+    // Seconds after t0 of a score position.
+    const at = options.timing
+      ? (beat: number) => options.timing!(beat) - options.timing!(from)
+      : (beat: number) => (beat - from) * spb
+    const schedule = notes
+      .filter((n) => n.start + n.duration > from + 1e-9 && n.start < until - 1e-9)
+      .sort((a, b) => a.start - b.start)
+      .map((n) => {
+        const start = Math.max(n.start, from)
+        const end = Math.min(n.start + n.duration, until)
+        return { note: n, t0: at(start), t1: at(end) }
+      })
+    for (const s of schedule) this.playNote(s.note, t0 + s.t0, s.t1 - s.t0)
+    const endTime = schedule.length ? Math.max(...schedule.map((s) => s.t1)) : 0
 
     let current: string | null = null
     const tick = () => {
-      const beat = from + (ctx.currentTime - t0) / spb
-      const n = upcoming.find((x) => beat >= x.start && beat < x.start + x.duration)
-      const id = n?.id ?? null
+      const t = ctx.currentTime - t0
+      const id = schedule.find((s) => t >= s.t0 && t < s.t1)?.note.id ?? null
       if (id !== current) {
         current = id
         options.onNote?.(id)
@@ -127,7 +142,7 @@ export class Player {
     this.endTimer = window.setTimeout(() => {
       this.stop()
       options.onEnd?.()
-    }, ((endBeat - from) * spb + lead + 0.3) * 1000)
+    }, (endTime + lead + 0.3) * 1000)
   }
 
   stop(): void {

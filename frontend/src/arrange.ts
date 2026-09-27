@@ -155,17 +155,22 @@ function ornamentFor(n: ScoreNote, prev: ScoreNote | undefined, prevOut: ScoreNo
   return { ...n, ornament: undefined }
 }
 
+function arrangeNotes(notes: SourceNote[], level: Level, shift: number, idPrefix: string): ScoreNote[] {
+  const spec = LEVEL_SPECS[level]
+  let previous: number | undefined
+  const pitched: ScoreNote[] = notes.map((n, i) => {
+    const pitch = fitPitch(n.pitch + shift, level, previous)
+    previous = pitch
+    return { id: `${idPrefix}${i}`, pitch, start: n.start, duration: n.duration, part: n.part, time: n.time }
+  })
+  const simple = simplifyRhythm(pitched, spec.grid, spec.minRest)
+  return spec.ornaments ? addOrnaments(simple) : simple
+}
+
 export function arrange(melody: Melody, level: Level, transpose?: number): Arrangement {
   const spec = LEVEL_SPECS[level]
   const shift = transpose ?? chooseTranspose(melody.notes, level)
-  let previous: number | undefined
-  const pitched: ScoreNote[] = melody.notes.map((n, i) => {
-    const pitch = fitPitch(n.pitch + shift, level, previous)
-    previous = pitch
-    return { id: `n${i}`, pitch, start: n.start, duration: n.duration }
-  })
-  let notes = simplifyRhythm(pitched, spec.grid, spec.minRest)
-  if (spec.ornaments) notes = addOrnaments(notes)
+  const notes = arrangeNotes(melody.notes, level, shift, 'n')
   return {
     level,
     transpose: shift,
@@ -173,6 +178,29 @@ export function arrange(melody: Melody, level: Level, transpose?: number): Arran
     beatsPerMeasure: melody.beatsPerMeasure,
     tempo: Math.round(melody.tempo * spec.tempoFactor),
   }
+}
+
+/**
+ * Add a newly scored part to an existing arrangement, keeping its key and any
+ * edits already made. Notes still sounding when the part starts are cut short.
+ */
+export function appendPart(arrangement: Arrangement, partId: string, notes: SourceNote[]): Arrangement {
+  const added = arrangeNotes(
+    notes.map((n) => ({ ...n, part: partId })),
+    arrangement.level,
+    arrangement.transpose,
+    `${partId}:`,
+  )
+  if (added.length === 0) return arrangement
+  const first = added[0].start
+  const kept = arrangement.notes
+    .filter((n) => n.start < first - 1e-9 || n.start >= added[added.length - 1].start + 1e-9)
+    .map((n) => (n.start < first && n.start + n.duration > first ? { ...n, duration: first - n.start } : n))
+  return { ...arrangement, notes: [...kept, ...added].sort((a, b) => a.start - b.start) }
+}
+
+export function removePart(arrangement: Arrangement, partId: string): Arrangement {
+  return { ...arrangement, notes: arrangement.notes.filter((n) => n.part !== partId) }
 }
 
 /** D major (two sharps) unless C naturals outnumber C sharps. */

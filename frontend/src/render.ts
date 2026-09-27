@@ -197,6 +197,16 @@ export function renderScore(
       }
       if (r === rows.length - 1 && i === row.measures.length - 1) stave.setEndBarType(3) // final bar
       stave.setContext(ctx).draw()
+      if (m.restMeasures) {
+        // A multi-bar rest: one whole rest with the number of bars above it.
+        const label = `${m.restMeasures} bars rest`
+        el('text', {
+          x: (stave.getNoteStartX() + stave.getNoteEndX()) / 2,
+          y: stave.getYForLine(0) - 10,
+          class: 'multirest',
+          'text-anchor': 'middle',
+        }, svg).textContent = label
+      }
 
       const notes = m.tokens.map((t) => makeNote(t, clef))
       const voice = new Voice({ num_beats: arrangement.beatsPerMeasure, beat_value: 4 })

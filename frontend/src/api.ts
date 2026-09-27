@@ -1,6 +1,6 @@
 /** Client for the analysis backend. */
 
-import type { Melody } from './types'
+import type { Song, SourceNote } from './types'
 
 /** Empty means same origin; set VITE_API_BASE when the app is served elsewhere (e.g. a phone app). */
 export const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, '') ?? ''
@@ -15,13 +15,23 @@ export interface JobStep {
   unit: 's' | 'MB' | ''
 }
 
-export interface JobStatus {
+/** Result of scoring one part of a song (backend/app/songs.py: analyze_part). */
+export interface PartResult {
+  start: number
+  end: number
+  separated: boolean
+  warnings: string[]
+  notes: SourceNote[]
+}
+
+export interface JobStatus<R = unknown> {
   id: string
+  kind: 'song' | 'part'
   status: 'queued' | 'running' | 'done' | 'error' | 'cancelled'
   stage: string
   progress: number
   error: string
-  result: Melody | null
+  result: R | null
   steps: JobStep[]
   /** Seconds since the analysis started. */
   elapsed: number
@@ -31,12 +41,9 @@ export interface JobStatus {
   queuePosition: number
 }
 
-export interface JobRequest {
+export interface SongRequest {
   file?: File
   url?: string
-  start?: number
-  duration?: number
-  separate: boolean
   beatsPerMeasure: number
 }
 
@@ -58,18 +65,34 @@ export async function health(): Promise<{ ok: boolean; separation: boolean }> {
   return json(await fetch(`${API_BASE}/api/health`))
 }
 
-export async function submitJob(req: JobRequest): Promise<JobStatus> {
+export async function loadSong(req: SongRequest): Promise<JobStatus<{ song: Song }>> {
   const form = new FormData()
   if (req.file) form.append('file', req.file)
   if (req.url) form.append('url', req.url)
-  form.append('start', String(req.start ?? 0))
-  form.append('duration', String(req.duration ?? 0))
-  form.append('separate', String(req.separate))
   form.append('beats_per_measure', String(req.beatsPerMeasure))
-  return json(await fetch(`${API_BASE}/api/jobs`, { method: 'POST', body: form }))
+  return json(await fetch(`${API_BASE}/api/songs`, { method: 'POST', body: form }))
 }
 
-export async function getJob(id: string): Promise<JobStatus> {
+export async function scorePart(songId: string, start: number, end: number, isolate: boolean): Promise<JobStatus<PartResult>> {
+  return json(
+    await fetch(`${API_BASE}/api/songs/${songId}/parts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ start, end, isolate }),
+    }),
+  )
+}
+
+/** Whether the server still has this song (it keeps only the most recent few). */
+export async function songAvailable(songId: string): Promise<boolean> {
+  try {
+    return (await fetch(`${API_BASE}/api/songs/${songId}`)).ok
+  } catch {
+    return false
+  }
+}
+
+export async function getJob<R>(id: string): Promise<JobStatus<R>> {
   return json(await fetch(`${API_BASE}/api/jobs/${id}`))
 }
 
@@ -77,19 +100,19 @@ export async function cancelJob(id: string): Promise<void> {
   await fetch(`${API_BASE}/api/jobs/${id}`, { method: 'DELETE' })
 }
 
-export function audioUrl(id: string): string {
-  return `${API_BASE}/api/jobs/${id}/audio`
+export function songAudioUrl(songId: string): string {
+  return `${API_BASE}/api/songs/${songId}/audio`
 }
 
 /** Poll a job until it finishes, reporting progress along the way. */
-export async function waitForJob(
+export async function waitForJob<R>(
   id: string,
-  onProgress: (s: JobStatus) => void,
+  onProgress: (s: JobStatus<R>) => void,
   signal?: AbortSignal,
-): Promise<JobStatus> {
+): Promise<JobStatus<R>> {
   for (;;) {
     if (signal?.aborted) throw new Error('Cancelled')
-    const status = await getJob(id)
+    const status = await getJob<R>(id)
     onProgress(status)
     if (status.status === 'done' || status.status === 'error' || status.status === 'cancelled') return status
     await new Promise((r) => setTimeout(r, 1000))

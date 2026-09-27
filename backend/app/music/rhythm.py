@@ -111,10 +111,10 @@ def quantize(notes: list[NoteEvent], beats: np.ndarray) -> list[BeatNote]:
             if qs <= out[-1].start:
                 # Two notes snapped to the same slot: keep the longer one.
                 if qe - qs > out[-1].duration:
-                    out[-1] = BeatNote(n.pitch, out[-1].start, qe - out[-1].start)
+                    out[-1] = BeatNote(n.pitch, out[-1].start, qe - out[-1].start, n.start, n.end)
                 continue
             out[-1].duration = qs - out[-1].start
-        out.append(BeatNote(n.pitch, qs, qe - qs))
+        out.append(BeatNote(n.pitch, qs, qe - qs, n.start, n.end))
 
     merged: list[BeatNote] = []
     for n in out:
@@ -127,42 +127,20 @@ def quantize(notes: list[NoteEvent], beats: np.ndarray) -> list[BeatNote]:
     return merged
 
 
-def align_to_measures(
-    notes: list[BeatNote], beats_per_measure: int, evidence: np.ndarray | None = None
-) -> list[BeatNote]:
-    """Shift the notes so that bar lines fall on the most likely downbeats.
+def downbeat_phase(evidence: np.ndarray, beats_per_measure: int) -> int:
+    """Which beat index (mod beats_per_measure) most likely starts a measure."""
+    if len(evidence) < beats_per_measure * 2:
+        return 0
+    scores = [float(evidence[p::beats_per_measure].mean()) for p in range(beats_per_measure)]
+    return int(np.argmax(scores))
 
-    Uses where long notes start and, when given, per-beat downbeat evidence
-    from the audio (see downbeat_evidence). Also drops leading silence so the
-    score starts at the first measure that contains music.
+
+def score_origin(beats: np.ndarray, beats_per_measure: int, phase: int) -> float:
+    """The beat index that becomes score position 0.
+
+    It is a downbeat, at or before the start of the song, so every note gets a
+    non-negative position and bar lines fall on the detected downbeats.
     """
-    if not notes:
-        return []
-    first = float(np.floor(notes[0].start))
-
-    def note_weight(offset: int) -> float:
-        # Notes that start on a downbeat for this offset, weighted by length.
-        return sum(
-            n.duration
-            for n in notes
-            if abs((n.start - first - offset) % beats_per_measure) < 1e-9
-        )
-
-    def audio_weight(offset: int) -> float:
-        if evidence is None or len(evidence) < beats_per_measure * 2:
-            return 0.0
-        phase = int(first + offset) % beats_per_measure
-        return float(evidence[phase::beats_per_measure].mean())
-
-    offsets = range(beats_per_measure)
-    notes_total = sum(note_weight(o) for o in offsets) or 1.0
-    audio_total = sum(audio_weight(o) for o in offsets) or 1.0
-
-    def score(offset: int) -> tuple[float, int]:
-        return (note_weight(offset) / notes_total + audio_weight(offset) / audio_total, -offset)
-
-    best = max(offsets, key=score)
-    # Measure boundaries sit at first + best + k * beats_per_measure; move the
-    # one at or before the first note to zero.
-    origin = first + best - beats_per_measure * (1 if best > 0 else 0)
-    return [BeatNote(n.pitch, n.start - origin, n.duration) for n in notes]
+    first = float(seconds_to_beats(np.array([0.0]), beats)[0])
+    measures_back = int(np.ceil((phase - first) / beats_per_measure))
+    return float(phase - measures_back * beats_per_measure)

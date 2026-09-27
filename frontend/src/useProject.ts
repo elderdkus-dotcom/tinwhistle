@@ -1,12 +1,20 @@
-/** The open song: its melody, one arrangement per level, and undo history. */
+/**
+ * The open song: the parts scored so far, one arrangement per level, and undo
+ * history. Songs are scored part by part: a new part arrives as a draft, and
+ * the user keeps or discards it before scoring the next one.
+ */
 
 import { useCallback, useEffect, useState } from 'react'
-import { arrange } from './arrange'
-import type { Arrangement, Level, Melody } from './types'
+import { appendPart, arrange, removePart } from './arrange'
+import type { Arrangement, Level, Melody, Part, Song, SourceNote } from './types'
 
 export interface Project {
-  melody: Melody
-  jobId: string | null
+  /** The loaded song; null for the built-in demo tunes, which have no audio. */
+  song: Song | null
+  title: string
+  tempo: number
+  beatsPerMeasure: number
+  parts: Part[]
   level: Level
   arrangements: Partial<Record<Level, Arrangement>>
 }
@@ -16,7 +24,7 @@ interface History {
   future: Arrangement[]
 }
 
-const STORAGE_KEY = 'tinwhistle:project:v1'
+const STORAGE_KEY = 'tinwhistle:project:v2'
 const MAX_HISTORY = 100
 
 function loadStored(): Project | null {
@@ -28,9 +36,29 @@ function loadStored(): Project | null {
   }
 }
 
+export function melodyOf(p: Project): Melody {
+  const notes: SourceNote[] = p.parts.flatMap((part) => part.notes.map((n) => ({ ...n, part: part.id })))
+  return { tempo: p.tempo, beatsPerMeasure: p.beatsPerMeasure, notes }
+}
+
+/** Where scoring has got to in the song, in seconds. */
+export function scoredUntil(p: Project): number {
+  return p.parts.reduce((m, part) => Math.max(m, part.end), 0)
+}
+
+export function draftPart(p: Project): Part | undefined {
+  return p.parts.find((part) => part.status === 'draft')
+}
+
 function withLevel(p: Project, level: Level): Project {
-  if (p.arrangements[level]) return { ...p, level }
-  return { ...p, level, arrangements: { ...p.arrangements, [level]: arrange(p.melody, level) } }
+  if (p.arrangements[level] || p.parts.every((part) => part.notes.length === 0)) return { ...p, level }
+  return { ...p, level, arrangements: { ...p.arrangements, [level]: arrange(melodyOf(p), level) } }
+}
+
+let partCounter = 0
+function newPartId(): string {
+  partCounter += 1
+  return `p${Date.now().toString(36)}${partCounter}`
 }
 
 export function useProject() {
@@ -46,9 +74,43 @@ export function useProject() {
     }
   }, [project])
 
-  const open = useCallback((melody: Melody, jobId: string | null, level: Level = 'beginner') => {
+  /** Start working on a freshly loaded song (nothing scored yet). */
+  const openSong = useCallback((song: Song) => {
     setHistory({})
-    setProject(withLevel({ melody, jobId, level, arrangements: {} }, level))
+    setProject({
+      song,
+      title: song.title,
+      tempo: song.tempo,
+      beatsPerMeasure: song.beatsPerMeasure,
+      parts: [],
+      level: 'beginner',
+      arrangements: {},
+    })
+  }, [])
+
+  /** Open a demo tune: one kept part, no audio. */
+  const openTune = useCallback((title: string, melody: Melody) => {
+    setHistory({})
+    const part: Part = {
+      id: 'demo',
+      start: 0,
+      end: 0,
+      kind: 'scored',
+      status: 'kept',
+      notes: melody.notes,
+      separated: false,
+      warnings: [],
+    }
+    const base: Project = {
+      song: null,
+      title,
+      tempo: melody.tempo,
+      beatsPerMeasure: melody.beatsPerMeasure,
+      parts: [part],
+      level: 'beginner',
+      arrangements: {},
+    }
+    setProject(withLevel(base, 'beginner'))
   }, [])
 
   const restore = useCallback((p: Project) => {
@@ -63,6 +125,45 @@ export function useProject() {
 
   const setLevel = useCallback((level: Level) => {
     setProject((p) => (p ? withLevel(p, level) : p))
+  }, [])
+
+  /** Add a newly scored (or skipped) stretch of the song as a draft. */
+  const addPart = useCallback((part: Omit<Part, 'id' | 'status'>, status: Part['status'] = 'draft') => {
+    const id = newPartId()
+    setHistory({})
+    setProject((p) => {
+      if (!p) return p
+      const full: Part = { ...part, id, status }
+      const next: Project = { ...p, parts: [...p.parts, full] }
+      const arrangements: Project['arrangements'] = {}
+      for (const [level, arr] of Object.entries(p.arrangements) as [Level, Arrangement][]) {
+        arrangements[level] = appendPart(arr, id, full.notes)
+      }
+      next.arrangements = arrangements
+      return withLevel(next, p.level)
+    })
+    return id
+  }, [])
+
+  const keepPart = useCallback((id: string) => {
+    setProject((p) =>
+      p ? { ...p, parts: p.parts.map((part) => (part.id === id ? { ...part, status: 'kept' } : part)) } : p,
+    )
+  }, [])
+
+  const discardPart = useCallback((id: string) => {
+    setHistory({})
+    setProject((p) => {
+      if (!p) return p
+      const parts = p.parts.filter((part) => part.id !== id)
+      const arrangements: Project['arrangements'] = {}
+      if (parts.some((part) => part.notes.length > 0)) {
+        for (const [level, arr] of Object.entries(p.arrangements) as [Level, Arrangement][]) {
+          arrangements[level] = removePart(arr, id)
+        }
+      }
+      return { ...p, parts, arrangements }
+    })
   }, [])
 
   /** Apply an edit to the current level's arrangement, recording undo history. */
@@ -82,6 +183,11 @@ export function useProject() {
     },
     [project],
   )
+
+  /** Rebuild the current level from the scored parts (drops edits on this level). */
+  const resetLevel = useCallback(() => {
+    if (project) edit(() => arrange(melodyOf(project), project.level))
+  }, [project, edit])
 
   const step = useCallback(
     (direction: 'undo' | 'redo') => {
@@ -112,11 +218,16 @@ export function useProject() {
     arrangement: project && level ? project.arrangements[level] ?? null : null,
     canUndo: !!(level && history[level]?.past.length),
     canRedo: !!(level && history[level]?.future.length),
-    open,
+    openSong,
+    openTune,
     restore,
     close,
     setLevel,
+    addPart,
+    keepPart,
+    discardPart,
     edit,
+    resetLevel,
     undo: () => step('undo'),
     redo: () => step('redo'),
   }

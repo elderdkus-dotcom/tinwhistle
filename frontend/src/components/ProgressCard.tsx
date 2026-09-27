@@ -1,7 +1,7 @@
 import { useRef } from 'react'
 import type { JobStatus, JobStep } from '../api'
 
-function clock(seconds: number): string {
+export function clock(seconds: number): string {
   const s = Math.max(0, Math.round(seconds))
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
@@ -13,14 +13,14 @@ function amount(step: JobStep): string {
 }
 
 /** What the active step is doing, e.g. "73 / 140 s of the song". */
-function activeDetail(step: JobStep): string {
+export function activeDetail(step: JobStep): string {
   if (step.done === null) return step.key === 'separate' ? 'Starting up (loading the separation model)…' : 'Starting…'
   if (step.unit === 's') return `${amount(step)} of the song`
   return amount(step)
 }
 
 /** The server's time estimate, rounded so it does not jitter. */
-function remaining(job: JobStatus): string {
+export function remaining(job: JobStatus): string {
   if (job.remaining === null) return 'estimating time left…'
   const left = job.remaining
   if (left < 10) return 'almost done'
@@ -28,7 +28,7 @@ function remaining(job: JobStatus): string {
   return `about ${clock(Math.ceil(left / 15) * 15)} left`
 }
 
-export function ProgressCard({ job, onCancel }: { job: JobStatus; onCancel: () => void }) {
+export function ProgressCard({ job, onCancel, title = 'Loading your song…' }: { job: JobStatus; onCancel: () => void; title?: string }) {
   const eta = remaining(job)
   // Never let the bar move backwards when the estimate is revised.
   const shown = useRef(0)
@@ -36,7 +36,7 @@ export function ProgressCard({ job, onCancel }: { job: JobStatus; onCancel: () =
   const percent = Math.round(shown.current * 100)
   return (
     <div className="card progress-card" aria-live="polite">
-      <h2>Listening to your song…</h2>
+      <h2>{title}</h2>
       {job.queuePosition > 0 ? (
         <p>
           Waiting for {job.queuePosition === 1 ? 'another song' : `${job.queuePosition} other songs`} to finish first.
@@ -77,6 +77,26 @@ export function ProgressCard({ job, onCancel }: { job: JobStatus; onCancel: () =
           </ol>
         </>
       )}
+      <button onClick={onCancel}>Cancel</button>
+    </div>
+  )
+}
+
+/** One-line progress for scoring a part, shown inside the song bar. */
+export function PartProgress({ job, onCancel }: { job: JobStatus; onCancel: () => void }) {
+  const shown = useRef(0)
+  shown.current = Math.max(shown.current, job.progress)
+  const active = job.steps.find((s) => s.state === 'active')
+  return (
+    <div className="part-progress" aria-live="polite">
+      <div className="part-progress-text">
+        <strong>{job.queuePosition > 0 ? 'Waiting for another job…' : active?.label ?? 'Starting…'}</strong>
+        {active && <span className="muted"> · {activeDetail(active)}</span>}
+        <span className="muted"> · {remaining(job)}</span>
+      </div>
+      <div className="progress small">
+        <div style={{ width: `${Math.round(shown.current * 100)}%` }} />
+      </div>
       <button onClick={onCancel}>Cancel</button>
     </div>
   )

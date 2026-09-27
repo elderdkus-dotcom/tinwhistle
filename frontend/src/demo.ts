@@ -2,14 +2,19 @@
 
 import type { Melody } from './types'
 
-function tune(title: string, tempo: number, beatsPerMeasure: number, pickup: number, seq: [number, number][]): Melody {
+export interface Demo {
+  title: string
+  melody: Melody
+}
+
+function tune(title: string, tempo: number, beatsPerMeasure: number, pickup: number, seq: [number, number][]): Demo {
   let t = pickup
   const notes = seq.map(([pitch, duration]) => {
     const n = { pitch, start: t, duration }
     t += duration
     return n
   })
-  return { title, tempo, beatsPerMeasure, key: '', notes, durationSeconds: (t * 60) / tempo, separated: false, warnings: [] }
+  return { title, melody: { tempo, beatsPerMeasure, notes } }
 }
 
 const c = 60, d = 62, E = 64, F = 65, G = 67, A = 69, B = 71, D = 74

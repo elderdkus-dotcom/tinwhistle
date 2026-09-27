@@ -3,7 +3,7 @@ import numpy as np
 from app.music.key import estimate_key
 from app.music.melody import extract_melody
 from app.music.model import BeatNote, NoteEvent
-from app.music.rhythm import align_to_measures, normalize_beats, quantize
+from app.music.rhythm import downbeat_phase, normalize_beats, quantize, score_origin
 
 
 def test_melody_prefers_loud_top_line_over_accompaniment():
@@ -35,17 +35,13 @@ def test_quantize_removes_overlap():
     assert [(n.start, n.duration) for n in q] == [(0.0, 1.0), (1.0, 1.0)]
 
 
-def test_align_puts_long_notes_on_downbeats():
-    # One-beat pickup, then half notes starting on beats 1, 5, 9...
-    notes = [BeatNote(62, 3.0, 1.0)] + [BeatNote(64, 4.0 + 2 * i, 2.0) for i in range(6)]
-    aligned = align_to_measures(notes, 4)
-    assert aligned[0].start == 3.0
-    assert aligned[1].start == 4.0
-
-
-def test_align_drops_leading_silence():
-    notes = [BeatNote(62, 16.0, 2.0), BeatNote(64, 18.0, 2.0)]
-    assert align_to_measures(notes, 4)[0].start == 0.0
+def test_downbeat_phase_and_origin():
+    evidence = np.array([0.2, 0.1, 2.0, 0.3] * 8)  # strong beat at index 2 of every 4
+    assert downbeat_phase(evidence, 4) == 2
+    beats = np.arange(0.5, 20, 0.5)  # first beat at 0.5 s: time 0 is beat index -1
+    origin = score_origin(beats, 4, 2)
+    assert origin == -2.0  # a downbeat, at or before the song start
+    assert (2 - origin) % 4 == 0
 
 
 def test_normalize_folds_tempo():

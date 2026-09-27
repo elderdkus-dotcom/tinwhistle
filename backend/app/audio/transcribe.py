@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import threading
-from pathlib import Path
 from typing import Callable
 
 import numpy as np
@@ -27,32 +26,34 @@ def _get_model():
         return _model
 
 
-def _run_model(wav: Path, on_progress: Callable[[float], None] | None) -> dict:
-    """Basic Pitch's run_inference, window by window so progress can be reported."""
+def _run_model(y: np.ndarray, sr: int, on_progress: Callable[[float], None] | None) -> dict:
+    """Basic Pitch's run_inference on an array, window by window so progress can be reported."""
+    import librosa
     from basic_pitch.constants import AUDIO_N_SAMPLES, AUDIO_SAMPLE_RATE, FFT_HOP
-    from basic_pitch.inference import get_audio_input, unwrap_output
+    from basic_pitch.inference import unwrap_output, window_audio_file
 
+    if sr != AUDIO_SAMPLE_RATE:
+        y = librosa.resample(y, orig_sr=sr, target_sr=AUDIO_SAMPLE_RATE)
+    y = y.astype(np.float32)
     model = _get_model()
     n_overlapping_frames = 30
     overlap_len = n_overlapping_frames * FFT_HOP
     hop_size = AUDIO_N_SAMPLES - overlap_len
+    padded = np.concatenate([np.zeros(overlap_len // 2, dtype=np.float32), y])
     output: dict[str, list] = {"note": [], "onset": [], "contour": []}
-    original_length = 0
-    for window, window_time, original_length in get_audio_input(str(wav), overlap_len, hop_size):
-        for k, v in model.predict(window).items():
+    for window, window_time in window_audio_file(padded, hop_size):
+        for k, v in model.predict(np.expand_dims(window, axis=0)).items():
             output[k].append(v)
         if on_progress:
             done = window_time["start"] + hop_size / AUDIO_SAMPLE_RATE
-            on_progress(min(done, original_length / AUDIO_SAMPLE_RATE))
-    return {
-        k: unwrap_output(np.concatenate(v), original_length, n_overlapping_frames) for k, v in output.items()
-    }
+            on_progress(min(done, len(y) / AUDIO_SAMPLE_RATE))
+    return {k: unwrap_output(np.concatenate(v), len(y), n_overlapping_frames) for k, v in output.items()}
 
 
 def transcribe(
-    wav: Path, isolated: bool, on_progress: Callable[[float], None] | None = None
+    y: np.ndarray, sr: int, isolated: bool, on_progress: Callable[[float], None] | None = None
 ) -> list[NoteEvent]:
-    """Transcribe a WAV into (possibly overlapping) note events.
+    """Transcribe mono audio into (possibly overlapping) note events.
 
     With an isolated vocal stem the thresholds can be lower, because nearly
     everything left in the signal is the melody. `on_progress` receives the
@@ -61,7 +62,7 @@ def transcribe(
     import basic_pitch.note_creation as infer
     from basic_pitch.constants import AUDIO_SAMPLE_RATE, FFT_HOP
 
-    model_output = _run_model(wav, on_progress)
+    model_output = _run_model(y, sr, on_progress)
     minimum_note_length = 80  # ms
     _, events = infer.model_output_to_notes(
         model_output,
