@@ -65,10 +65,14 @@ def transcribe(
     are kept, which is how one instrument is picked out by its range.
     `on_progress` receives the seconds of audio processed so far.
     """
+    return notes_from_output(_run_model(y, sr, on_progress), isolated, min_freq, max_freq)
+
+
+def notes_from_output(model_output: dict, isolated: bool, min_freq: float, max_freq: float) -> list[NoteEvent]:
+    """Note events from Basic Pitch's raw output (see transcribe)."""
     import basic_pitch.note_creation as infer
     from basic_pitch.constants import AUDIO_SAMPLE_RATE, FFT_HOP
 
-    model_output = _run_model(y, sr, on_progress)
     minimum_note_length = 80  # ms
     _, events = infer.model_output_to_notes(
         model_output,

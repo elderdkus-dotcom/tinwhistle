@@ -1,54 +1,79 @@
-"""Note detection for a single singing voice (an isolated vocal stem).
+"""Note detection for a single melodic line (a voice or a whistle).
 
 Basic Pitch is built for instruments and polyphony; on a voice with vibrato
-and slides it tends to split and mis-pitch notes. Here the pitch contour is
+and slides it splits and mis-pitches notes, and on a whistle it misses
+slurred notes (a new pitch without a new attack). Here the pitch contour is
 tracked with pYIN and cut into notes where the pitch settles on a new
-semitone, where the voice stops, or where a new syllable starts.
+semitone, where the sound stops, or where a new syllable / tongued note
+starts. Settings differ per instrument (VOICE, WHISTLE).
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Callable
 
 import numpy as np
 
 from app.music.model import NoteEvent
 
+
+@dataclass(frozen=True)
+class ContourSettings:
+    rate: int  # analysis sample rate
+    hop: int
+    frame: int
+    fmin: float  # Hz
+    fmax: float
+    voiced_prob: float
+    # A pitch change must exceed this many semitones for this long to start a
+    # note; vibrato (about +-0.4 semitones) must not.
+    change_semitones: float
+    change_seconds: float
+    min_note_seconds: float
+    glide_seconds: float  # ignored at the start of a note when picking its pitch
+    smooth_seconds: float  # median filter on the contour
+    max_gap_seconds: float = 0.025  # unvoiced time tolerated inside a note
+
+
 # The voice is analyzed at 11.025 kHz: plenty for pitch, and twice as fast.
-RATE = 11025
-HOP = 128
-FRAME = 1024
-FMIN = 65.0  # C2
-FMAX = 1050.0  # C6
+VOICE = ContourSettings(
+    rate=11025, hop=128, frame=1024, fmin=65.0, fmax=1050.0, voiced_prob=0.25,
+    change_semitones=0.6, change_seconds=0.045, min_note_seconds=0.08,
+    glide_seconds=0.05, smooth_seconds=0.058,
+)
+# A D whistle sounds D5 (587 Hz) up to about E7; its notes change quickly and
+# cleanly, so the contour is tracked with finer timing. Cuts and taps (~30 ms
+# grace notes) are shorter than min_note_seconds and are left out, as whistle
+# sheet music usually does.
+WHISTLE = ContourSettings(
+    rate=11025, hop=64, frame=512, fmin=520.0, fmax=2700.0, voiced_prob=0.2,
+    change_semitones=0.6, change_seconds=0.025, min_note_seconds=0.06,
+    glide_seconds=0.02, smooth_seconds=0.03,
+)
+
 CHUNK_SECONDS = 12.0
-VOICED_PROB = 0.25
-# A pitch change must exceed this many semitones for this long to start a note;
-# vibrato (about +-0.4 semitones) must not.
-CHANGE_SEMITONES = 0.6
-CHANGE_FRAMES = 4
-MAX_GAP_FRAMES = 2  # unvoiced frames tolerated inside a note
-MIN_NOTE_SECONDS = 0.08
-GLIDE_SECONDS = 0.05  # ignored at the start of a note when picking its pitch
-# A syllable onset splits a held pitch into repeated notes.
+# A syllable onset / tongued note splits a held pitch into repeated notes.
 ONSET_DELTA = 0.25
 ONSET_MARGIN_SECONDS = 0.1
 # A brief drop in loudness inside a held pitch also means a new (repeated) note.
 DIP_RATIO = 0.35
 
 
-def _pitch_track(y: np.ndarray, sr: int, on_progress: Callable[[float], None] | None):
+def _pitch_track(y: np.ndarray, cfg: ContourSettings, on_progress: Callable[[float], None] | None):
     import librosa
 
+    sr, hop = cfg.rate, cfg.hop
     chunk = int(CHUNK_SECONDS * sr)
     midi_parts, prob_parts = [], []
     for start in range(0, len(y), chunk):
         part = y[start : start + chunk]
-        if len(part) < FRAME:
-            part = np.pad(part, (0, FRAME - len(part)))
+        if len(part) < cfg.frame:
+            part = np.pad(part, (0, cfg.frame - len(part)))
         f0, _, prob = librosa.pyin(
-            part, fmin=FMIN, fmax=FMAX, sr=sr, frame_length=FRAME, hop_length=HOP, center=True
+            part, fmin=cfg.fmin, fmax=cfg.fmax, sr=sr, frame_length=cfg.frame, hop_length=hop, center=True
         )
-        n = int(np.ceil(min(chunk, len(y) - start) / HOP))
+        n = int(np.ceil(min(chunk, len(y) - start) / hop))
         with np.errstate(divide="ignore", invalid="ignore"):
             midi_parts.append((69 + 12 * np.log2(f0 / 440.0))[:n])
         prob_parts.append(prob[:n])
@@ -57,12 +82,11 @@ def _pitch_track(y: np.ndarray, sr: int, on_progress: Callable[[float], None] | 
     return np.concatenate(midi_parts), np.concatenate(prob_parts)
 
 
-def _onsets(y: np.ndarray, sr: int) -> np.ndarray:
+def _onsets(y: np.ndarray, sr: int, hop: int) -> np.ndarray:
     import librosa
 
-    env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=HOP)
-    frames = librosa.onset.onset_detect(onset_envelope=env, sr=sr, hop_length=HOP, delta=ONSET_DELTA, units="frames")
-    return frames
+    env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop)
+    return librosa.onset.onset_detect(onset_envelope=env, sr=sr, hop_length=hop, delta=ONSET_DELTA, units="frames")
 
 
 def _split_at_dips(bound: tuple[int, int], rms: np.ndarray, min_frames: int) -> list[tuple[int, int]]:
@@ -88,24 +112,39 @@ def _split_at_dips(bound: tuple[int, int], rms: np.ndarray, min_frames: int) -> 
 def transcribe_voice(
     y: np.ndarray, sr: int, on_progress: Callable[[float], None] | None = None
 ) -> list[NoteEvent]:
+    return transcribe_contour(y, sr, VOICE, on_progress)
+
+
+def transcribe_whistle(
+    y: np.ndarray, sr: int, on_progress: Callable[[float], None] | None = None
+) -> list[NoteEvent]:
+    return transcribe_contour(y, sr, WHISTLE, on_progress)
+
+
+def transcribe_contour(
+    y: np.ndarray, sr: int, cfg: ContourSettings, on_progress: Callable[[float], None] | None = None
+) -> list[NoteEvent]:
     import librosa
     from scipy.ndimage import median_filter
 
-    y = librosa.resample(y.astype(np.float32), orig_sr=sr, target_sr=RATE)
-    sr = RATE
-    midi, prob = _pitch_track(y, sr, on_progress)
-    voiced = np.isfinite(midi) & (prob >= VOICED_PROB)
+    y = librosa.resample(y.astype(np.float32), orig_sr=sr, target_sr=cfg.rate)
+    sr, hop = cfg.rate, cfg.hop
+    frame_s = hop / sr
+    midi, prob = _pitch_track(y, cfg, on_progress)
+    voiced = np.isfinite(midi) & (prob >= cfg.voiced_prob)
     smooth = midi.copy()
-    smooth[voiced] = median_filter(midi[voiced], size=5, mode="nearest") if voiced.any() else smooth[voiced]
-    # A short window, so brief dips between repeated syllables stay visible.
-    rms = librosa.feature.rms(y=y, frame_length=2 * HOP, hop_length=HOP)[0]
+    size = max(3, int(round(cfg.smooth_seconds / frame_s)) | 1)
+    smooth[voiced] = median_filter(midi[voiced], size=size, mode="nearest") if voiced.any() else smooth[voiced]
+    # A short window, so brief dips between repeated notes stay visible.
+    rms = librosa.feature.rms(y=y, frame_length=max(2 * hop, 256), hop_length=hop)[0]
     rms = np.pad(rms, (0, max(0, len(midi) - len(rms))))[: len(midi)]
-    onset_frames = set(int(f) for f in _onsets(y, sr))
+    onset_frames = set(int(f) for f in _onsets(y, sr, hop))
 
-    frame_s = HOP / sr
-    min_frames = int(MIN_NOTE_SECONDS / frame_s)
-    glide = int(GLIDE_SECONDS / frame_s)
+    min_frames = max(2, int(cfg.min_note_seconds / frame_s))
+    glide = int(cfg.glide_seconds / frame_s)
     margin = int(ONSET_MARGIN_SECONDS / frame_s)
+    change_frames = max(2, int(round(cfg.change_seconds / frame_s)))
+    max_gap = max(1, int(round(cfg.max_gap_seconds / frame_s)))
 
     # 1. Split voiced regions into notes at pitch changes and syllable onsets.
     bounds: list[tuple[int, int]] = []
@@ -121,15 +160,15 @@ def transcribe_voice(
         while j < n:
             if not voiced[j]:
                 gap += 1
-                if gap > MAX_GAP_FRAMES:
+                if gap > max_gap:
                     break
                 j += 1
                 continue
             gap = 0
-            if abs(smooth[j] - center) > CHANGE_SEMITONES:
+            if abs(smooth[j] - center) > cfg.change_semitones:
                 pending += 1
-                if pending >= CHANGE_FRAMES:
-                    j -= CHANGE_FRAMES - 1  # the new note starts where the change began
+                if pending >= change_frames:
+                    j -= change_frames - 1  # the new note starts where the change began
                     break
             else:
                 pending = 0

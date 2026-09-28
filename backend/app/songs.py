@@ -18,7 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
-from app.audio import fetch, separate, timbre, transcribe, voice
+from app.audio import fetch, separate, transcribe, voice, whistle
 from app.music import melody, rhythm
 from app.progress import Progress
 
@@ -29,7 +29,8 @@ MAX_SONGS_KEPT = 5
 # Audio analyzed around a part so notes at its edges are heard whole.
 CONTEXT_BEFORE = 1.0
 CONTEXT_AFTER = 1.5
-VOICE_COST = 0.06  # pYIN, seconds of work per second of audio (reference speed)
+# Seconds of work per second of audio for each detector (reference speed).
+DETECTOR_COSTS = {"voice": 0.06, "whistle": 0.12, "notes": 0.015}
 
 
 @dataclass
@@ -156,23 +157,22 @@ class MelodySource:
 
     label: str
     stems: tuple[str, ...]  # Demucs stems to mix; empty means the whole song
-    voice: bool  # pYIN voice tracker instead of Basic Pitch
-    min_freq: float  # Hz; notes outside this range are ignored
-    max_freq: float
-    sustained: bool = False  # drop notes that fade like plucked strings
+    detector: str  # "voice" (pYIN), "whistle" (see app/audio/whistle.py) or "notes" (Basic Pitch)
+    min_freq: float = 80.0  # Hz; for the "notes" detector
+    max_freq: float = 2100.0
+    # Below this share of the mix's energy the stems count as empty and the
+    # whole mix is used. A whistle can be much quieter than the band and its
+    # stem is still the best place to listen, so its threshold is low.
+    min_share: float = separate.MIN_STEM_ENERGY_RATIO
 
 
 SOURCES = {
-    "voice": MelodySource("the singer", ("vocals",), True, 65.0, 1050.0),
-    # A D whistle sounds from D5 (587 Hz) to about D7; flutes and fiddles in
-    # their upper range fall here too. Guitar and piano melody notes mostly
-    # sit lower, so the range picks the whistle out even when they overlap.
-    # Demucs may file a whistle under "vocals" or "other", so both are used.
-    # Whistle notes hold steady while guitar notes fade, which separates the
-    # two where their ranges overlap (see app/audio/timbre.py).
-    "whistle": MelodySource("the tin whistle / flute", ("other", "vocals"), False, 540.0, 2700.0, sustained=True),
-    "instrument": MelodySource("the instruments", ("other",), False, 80.0, 2100.0),
-    "mix": MelodySource("the whole band", (), False, 80.0, 2100.0),
+    "voice": MelodySource("the singer", ("vocals",), "voice"),
+    # The six-stem Demucs model gives guitar and piano their own stems, so they
+    # are left out; a whistle usually lands in "other" (sometimes "vocals").
+    "whistle": MelodySource("the tin whistle / flute", ("other", "vocals"), "whistle", min_share=0.003),
+    "instrument": MelodySource("the instruments", ("other", "guitar", "piano"), "notes"),
+    "mix": MelodySource("the whole band", (), "notes"),
 }
 
 
@@ -200,7 +200,7 @@ def analyze_part(song: Song, start: float, end: float, source: str, progress: Pr
         steps.insert(0, ("separate", f"Separating {src.label} from the rest"))
     progress.plan(
         steps,
-        costs={"notes": VOICE_COST} if src.voice else None,
+        costs={"notes": DETECTOR_COSTS[src.detector]},
         startup={"separate": 0.0 if separate.model_loaded() else 15.0},
     )
 
@@ -221,24 +221,24 @@ def analyze_part(song: Song, start: float, end: float, source: str, progress: Pr
         except separate.SeparationCancelled:
             progress.check()
             raise
-        picked = sum(stems[name] for name in src.stems)
-        if separate.has_enough(picked, clip):
+        picked = sum(stems[name] for name in src.stems if name in stems)
+        if separate.has_enough(picked, clip, src.min_share):
             audio, isolated = picked, True
         else:
             warnings.append(f"Could not hear {src.label} in this part, so the melody was taken from the whole band.")
     elif src.stems:
-        warnings.append(f"Separation is not installed, so {src.label} was picked out of the whole band by its range and sound only.")
+        warnings.append(f"Separation is not installed, so {src.label} was picked out of the whole band by its range only.")
 
     progress.start("notes")
     report = lambda done: progress.update("notes", min(done, clip_len), clip_len)  # noqa: E731
-    if src.voice and isolated:
+    if src.detector == "voice" and isolated:
         events = voice.transcribe_voice(audio, song.sr, report)
+    elif src.detector == "whistle":
+        events = whistle.whistle_notes(audio, song.sr, isolated, report)
     else:
         events = transcribe.transcribe(
             audio, song.sr, isolated=isolated, on_progress=report, min_freq=src.min_freq, max_freq=src.max_freq
         )
-        if src.sustained:
-            events = timbre.keep_sustained(audio, song.sr, events)
 
     progress.start("melody")
     line = melody.extract_melody(events, lambda done: progress.update("melody", min(done, clip_len), clip_len))

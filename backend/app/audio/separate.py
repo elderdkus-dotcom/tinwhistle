@@ -15,7 +15,9 @@ import numpy as np
 # Below this stem-to-mix energy ratio a stem is treated as empty (e.g. no
 # singing in an instrumental part) and the full mix is used instead.
 MIN_STEM_ENERGY_RATIO = 0.08
-MODEL_NAME = "htdemucs"
+# The six-stem model also splits out guitar and piano, which lets a whistle or
+# flute be scored without the guitar chords around it.
+MODEL_NAME = "htdemucs_6s"
 
 _model = None
 _model_lock = threading.Lock()
@@ -50,7 +52,7 @@ def separate_stems(
     on_progress: Callable[[float], None] | None = None,
     cancelled: threading.Event | None = None,
 ) -> dict[str, np.ndarray]:
-    """Split mono audio `y` into Demucs's stems (drums, bass, other, vocals), same rate.
+    """Split mono audio `y` into Demucs's stems (drums, bass, other, vocals, guitar, piano), same rate.
 
     `on_progress` receives the seconds of audio separated so far. Setting
     `cancelled` stops the separation (raises SeparationCancelled).
@@ -83,6 +85,6 @@ def separate_stems(
     return stems
 
 
-def has_enough(stem: np.ndarray, mix: np.ndarray) -> bool:
+def has_enough(stem: np.ndarray, mix: np.ndarray, min_ratio: float = MIN_STEM_ENERGY_RATIO) -> bool:
     """Whether a stem holds a real part of the music rather than leakage."""
-    return float(np.mean(stem**2)) / (float(np.mean(mix**2)) + 1e-12) >= MIN_STEM_ENERGY_RATIO
+    return float(np.mean(stem**2)) / (float(np.mean(mix**2)) + 1e-12) >= min_ratio
