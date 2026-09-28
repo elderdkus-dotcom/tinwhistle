@@ -1,4 +1,4 @@
-"""Note detection for a tin whistle, flute or similar lead instrument.
+"""Note detection for a tin whistle, flute, low whistle or similar lead instrument.
 
 Two detectors are combined, because each fails differently:
 
@@ -18,12 +18,16 @@ Before either runs, pitches that sound unchanged for seconds on end are
 removed: accordions, banjos and synth pads often hold a chord or drone in the
 whistle's range, and a tune moves while a drone does not.
 
-The range starts at A4, so whistles in other keys fit too: a B-flat or C
-whistle (common on recordings in those keys) plays down to B-flat 4 / C5.
+Rapidly re-picked notes (banjo or mandolin tremolo) are removed as well:
+their loudness flickers many times a second, while a blown note is smooth.
+
+Two ranges are offered: a tin whistle (from A4, so B-flat and C whistles fit
+as well as D) and a flute or low whistle (from A3).
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass, replace
 from typing import Callable
 
 import numpy as np
@@ -32,30 +36,50 @@ from app.audio import transcribe, voice
 from app.music import melody
 from app.music.model import NoteEvent
 
-MIN_FREQ = 430.0  # just below A4: low enough for B-flat and C whistles
-MAX_FREQ = 2700.0
 LOWEST_KEY = 21  # Basic Pitch's first pitch bin is A0 (MIDI 21)
 MIN_SUPPORT = 0.15  # mean Basic Pitch activation a contour note needs
 OVERLAP_MARGIN = 0.03  # seconds
 DRONE_SECONDS = 3.0  # a pitch held steadily this long counts as accompaniment
 DRONE_STRENGTH = 1.2
+# Relative loudness flicker (over ~1/6 s) between which a sound fades from
+# "blown" (kept) to "re-picked tremolo" (removed).
+FLICKER_SMOOTH = 0.2
+FLICKER_TREMOLO = 0.4
 
 
-def remove_drones(y: np.ndarray, sr: int) -> np.ndarray:
-    """Suppress pitches that sound steadily for several seconds (drones, held chords).
+@dataclass(frozen=True)
+class LeadRange:
+    min_freq: float  # Hz, for Basic Pitch
+    max_freq: float
+    contour: voice.ContourSettings
 
-    The steady level of every frequency is its median over a few seconds;
-    only what rises above it (the moving tune) is kept.
+
+TIN_WHISTLE = LeadRange(430.0, 2700.0, voice.WHISTLE)  # from A4
+FLUTE = LeadRange(215.0, 2400.0, replace(voice.WHISTLE, fmin=210.0, fmax=2400.0))  # from A3
+
+
+def clean_lead(y: np.ndarray, sr: int) -> np.ndarray:
+    """Suppress accompaniment around a blown lead instrument.
+
+    - Drones and held chords: the steady level of every frequency is its
+      median over a few seconds; only what rises above it (the moving tune)
+      is kept.
+    - Tremolo (banjo, mandolin): parts of the spectrum whose loudness
+      flickers quickly are faded out.
     """
     import librosa
     from scipy.ndimage import median_filter, uniform_filter1d
 
-    hop = 256
+    hop = 128
+    rate = sr / hop
     spectrum = librosa.stft(y, n_fft=2048, hop_length=hop)
     magnitude = np.abs(spectrum)
-    width = max(3, int(DRONE_SECONDS * sr / hop)) | 1
-    steady = median_filter(magnitude, size=(1, width), mode="nearest")
+    steady = median_filter(magnitude, size=(1, max(3, int(DRONE_SECONDS * rate)) | 1), mode="nearest")
     keep = np.clip(magnitude - DRONE_STRENGTH * steady, 0, None) / (magnitude + 1e-9)
+    window = max(3, int(rate / 6))
+    smooth = uniform_filter1d(magnitude, window, axis=1)
+    flicker = uniform_filter1d(np.abs(magnitude - smooth), window, axis=1) / (smooth + 1e-9)
+    keep *= np.clip((FLICKER_TREMOLO - flicker) / (FLICKER_TREMOLO - FLICKER_SMOOTH), 0, 1)
     keep = uniform_filter1d(keep, 3, axis=1)  # soften the mask a little
     return librosa.istft(spectrum * keep, hop_length=hop, length=len(y)).astype(np.float32)
 
@@ -80,16 +104,20 @@ def _fill(primary: list[NoteEvent], backup: list[NoteEvent]) -> list[NoteEvent]:
     return sorted(out, key=lambda n: n.start)
 
 
-def whistle_notes(
-    y: np.ndarray, sr: int, isolated: bool, on_progress: Callable[[float], None] | None = None
+def lead_notes(
+    y: np.ndarray,
+    sr: int,
+    isolated: bool,
+    lead: LeadRange = TIN_WHISTLE,
+    on_progress: Callable[[float], None] | None = None,
 ) -> list[NoteEvent]:
-    """The whistle's notes in `y` (ideally a stem with drums, bass and guitar removed)."""
+    """The lead instrument's notes in `y` (ideally a stem with drums, bass and guitar removed)."""
     length = len(y) / sr
     # Progress: Basic Pitch is the first third of the work, pYIN the rest.
     first = (lambda done: on_progress(done / 3)) if on_progress else None
     rest = (lambda done: on_progress(length / 3 + 2 * done / 3)) if on_progress else None
-    y = remove_drones(y, sr)
+    y = clean_lead(y, sr)
     output = transcribe._run_model(y, sr, first)
-    backup = melody.extract_melody(transcribe.notes_from_output(output, isolated, MIN_FREQ, MAX_FREQ))
-    contour = [n for n in voice.transcribe_whistle(y, sr, rest) if _supported(output, n)]
+    backup = melody.extract_melody(transcribe.notes_from_output(output, isolated, lead.min_freq, lead.max_freq))
+    contour = [n for n in voice.transcribe_contour(y, sr, lead.contour, rest) if _supported(output, n)]
     return _fill(contour, backup)

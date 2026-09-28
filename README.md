@@ -9,7 +9,10 @@ fingering chart (filled and open holes) under every note. It is a web app, built
 2. **Play the song and pause** where you want the next part to end, then press **Score**. For an instrumental intro, press **Skip** instead.
    Use **Melody from** to choose what to score:
    - **Singer**
-   - **Tin whistle / flute:** a high melody instrument. Guitar and piano are separated out first.
+   - **Tin whistle:** from A4 upwards, so B♭ and C whistles fit as well as D.
+   - **Flute / low whistle:** from A3 upwards, an octave lower than a tin whistle.
+
+   For both of these, guitar and piano are separated out first. Drones, held chords and banjo/mandolin tremolo are removed before listening.
    - **Other instrument**
    - **Whole band**
 3. **Review the new part.** It is tinted blue in the score. Play the song and the whistle version to compare, then press **Keep** or **Discard**.
@@ -32,8 +35,8 @@ Other features:
 ```
 load:  song ─► download / decode ─► beat grid + bar lines (librosa)
 part:  clip ─► separate stems (Demucs 6-stem) ─┬─ singer:  vocals ─► voice pitch contour (pYIN) ─► notes
-                                               ├─ whistle: other+vocals (no guitar/piano) ─► whistle pitch contour (pYIN),
-                                               │           checked against Basic Pitch, gaps filled by Basic Pitch
+                                               ├─ whistle / flute: other (no guitar/piano), drones + tremolo removed
+                                               │     ─► pitch contour (pYIN) checked against Basic Pitch, gaps filled by Basic Pitch
                                                └─ other instrument / whole band ─► Basic Pitch
        ─► pick the melody line (Viterbi) ─► quantize onto the song's grid
 browser: parts ─► transpose for the whistle ─► level arrangement ─► VexFlow staff + fingering charts

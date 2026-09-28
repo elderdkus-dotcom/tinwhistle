@@ -77,7 +77,7 @@ async def create_song(
 class PartRequest(BaseModel):
     start: float
     end: float
-    # Which instrument carries the melody: voice | whistle | instrument | mix
+    # Which instrument carries the melody: voice | whistle | flute | instrument | mix
     source: str = "voice"
 
 

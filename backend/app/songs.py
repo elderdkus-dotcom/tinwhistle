@@ -30,7 +30,7 @@ MAX_SONGS_KEPT = 5
 CONTEXT_BEFORE = 1.0
 CONTEXT_AFTER = 1.5
 # Seconds of work per second of audio for each detector (reference speed).
-DETECTOR_COSTS = {"voice": 0.06, "whistle": 0.12, "notes": 0.015}
+DETECTOR_COSTS = {"voice": 0.06, "whistle": 0.7, "flute": 0.7, "notes": 0.015}
 
 
 @dataclass
@@ -157,7 +157,7 @@ class MelodySource:
 
     label: str
     stems: tuple[str, ...]  # Demucs stems to mix; empty means the whole song
-    detector: str  # "voice" (pYIN), "whistle" (see app/audio/whistle.py) or "notes" (Basic Pitch)
+    detector: str  # "voice" (pYIN), "whistle" / "flute" (see app/audio/whistle.py) or "notes" (Basic Pitch)
     min_freq: float = 80.0  # Hz; for the "notes" detector
     max_freq: float = 2100.0
     # Below this share of the mix's energy the stems count as empty and the
@@ -171,7 +171,9 @@ SOURCES = {
     # The six-stem Demucs model gives guitar and piano their own stems, so they
     # are left out; a whistle lands in "other". (Adding "vocals" would let the
     # singer in during verses.)
-    "whistle": MelodySource("the tin whistle / flute", ("other",), "whistle", min_share=0.003),
+    "whistle": MelodySource("the tin whistle", ("other",), "whistle", min_share=0.003),
+    # A concert flute or low whistle plays an octave lower (down to about A3).
+    "flute": MelodySource("the flute / low whistle", ("other",), "flute", min_share=0.003),
     "instrument": MelodySource("the instruments", ("other", "guitar", "piano"), "notes"),
     "mix": MelodySource("the whole band", (), "notes"),
 }
@@ -234,8 +236,9 @@ def analyze_part(song: Song, start: float, end: float, source: str, progress: Pr
     report = lambda done: progress.update("notes", min(done, clip_len), clip_len)  # noqa: E731
     if src.detector == "voice" and isolated:
         events = voice.transcribe_voice(audio, song.sr, report)
-    elif src.detector == "whistle":
-        events = whistle.whistle_notes(audio, song.sr, isolated, report)
+    elif src.detector in ("whistle", "flute"):
+        lead = whistle.TIN_WHISTLE if src.detector == "whistle" else whistle.FLUTE
+        events = whistle.lead_notes(audio, song.sr, isolated, lead, report)
     else:
         events = transcribe.transcribe(
             audio, song.sr, isolated=isolated, on_progress=report, min_freq=src.min_freq, max_freq=src.max_freq

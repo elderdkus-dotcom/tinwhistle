@@ -30,11 +30,12 @@ export interface Melody {
 }
 
 /** Which instrument carries the melody (backend/app/songs.py: SOURCES). */
-export type MelodySource = 'voice' | 'whistle' | 'instrument' | 'mix'
+export type MelodySource = 'voice' | 'whistle' | 'flute' | 'instrument' | 'mix'
 
 export const MELODY_SOURCES: { value: MelodySource; label: string; hint: string }[] = [
   { value: 'voice', label: 'Singer', hint: 'The sung melody' },
-  { value: 'whistle', label: 'Tin whistle / flute', hint: 'A whistle, flute or other high, held-note instrument' },
+  { value: 'whistle', label: 'Tin whistle', hint: 'A tin whistle, piccolo or other high blown instrument (from A4 up)' },
+  { value: 'flute', label: 'Flute / low whistle', hint: 'A concert flute or low whistle, which play an octave lower (from A3 up)' },
   { value: 'instrument', label: 'Other instrument', hint: 'Guitar, piano, fiddle… (everything except voice, drums and bass)' },
   { value: 'mix', label: 'Whole band', hint: 'The highest line of the whole recording' },
 ]
