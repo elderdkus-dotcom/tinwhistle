@@ -27,7 +27,13 @@ Other features:
   - **Intermediate:** both octaves, C natural, full rhythm.
   - **Expert:** half-holed notes, cuts and rolls.
 - **Whistle playback:** speed control, count-in, and a "whistle along" option that plays the score in time with the song.
-- **Editing:** tap a note to change its pitch or length, insert or delete notes, add ornaments, or play the song from that note. Undo and redo work.
+- **Editing:**
+  - Tap a note to change its pitch or length, insert or delete it, **Join** it with the next note, add ornaments, or play the song from that note.
+  - Tap a rest to **add a missing note** there.
+  - Undo and redo work.
+- **Teach it the instrument:** mark notes as **✓ Right sound** or **✗ Wrong sound** (e.g. the flute versus a banjo). Added notes count as right sounds. When the next parts are scored, the app:
+  - listens to the separated track(s) that hold the right sound;
+  - drops notes that sound like the wrong one, judging by overtones, tremolo flicker and fade.
 - **Output:** print or save as PDF. You can save and reopen projects as `.whistle.json` files.
 
 ## How it works

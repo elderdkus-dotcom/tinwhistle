@@ -75,3 +75,28 @@ export function neighbour(notes: ScoreNote[], id: string, direction: 1 | -1): st
   const i = sorted.findIndex((n) => n.id === id)
   return sorted[i + direction]?.id
 }
+
+/** Merge a note with the one after it into one longer note (for a note that was split). */
+export function joinWithNext(notes: ScoreNote[], id: string): ScoreNote[] {
+  const next = neighbour(notes, id, 1)
+  const target = notes.find((n) => n.id === id)
+  const after = notes.find((n) => n.id === next)
+  if (!target || !after) return notes
+  const end = Math.max(target.start + target.duration, after.start + after.duration)
+  return notes
+    .filter((n) => n.id !== after.id)
+    .map((n) => (n.id === id ? { ...n, duration: end - n.start } : n))
+}
+
+/** Add a note in a rest; it takes the pitch of the note before it, to be adjusted. */
+export function addNoteAt(notes: ScoreNote[], start: number, beats: number): { notes: ScoreNote[]; id: string } {
+  const before = [...notes].filter((n) => n.start < start).sort((a, b) => b.start - a.start)[0]
+  const note: ScoreNote = {
+    id: newId(),
+    pitch: before?.pitch ?? LOW_D + 12,
+    start,
+    duration: Math.min(beats, 1),
+    part: before?.part,
+  }
+  return { notes: [...notes, note].sort((a, b) => a.start - b.start), id: note.id }
+}

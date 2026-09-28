@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { changeDuration, deleteNote, insertAfter, movePitch, neighbour, toggleOrnament, transposeAll } from './editor'
+import { addNoteAt, changeDuration, deleteNote, insertAfter, joinWithNext, movePitch, neighbour, toggleOrnament, transposeAll } from './editor'
 import type { ScoreNote } from './types'
 
 const notes: ScoreNote[] = [
@@ -35,5 +35,20 @@ describe('editor', () => {
     expect(transposeAll(notes, 2).map((n) => n.pitch)).toEqual([64, 73, 76])
     expect(neighbour(notes, 'b', 1)).toBe('c')
     expect(neighbour(notes, 'a', -1)).toBeUndefined()
+  })
+
+  it('joins a split note and adds notes in rests', () => {
+    const split: ScoreNote[] = [
+      { id: 'a', pitch: 67, start: 0, duration: 0.5 },
+      { id: 'b', pitch: 67, start: 0.5, duration: 1 },
+      { id: 'c', pitch: 69, start: 2, duration: 1 },
+    ]
+    expect(joinWithNext(split, 'a').map((n) => [n.id, n.start, n.duration])).toEqual([
+      ['a', 0, 1.5],
+      ['c', 2, 1],
+    ])
+    const { notes: added, id } = addNoteAt(split, 1.5, 0.5)
+    expect(added.map((n) => n.start)).toEqual([0, 0.5, 1.5, 2])
+    expect(added.find((n) => n.id === id)).toMatchObject({ pitch: 67, start: 1.5, duration: 0.5 })
   })
 })

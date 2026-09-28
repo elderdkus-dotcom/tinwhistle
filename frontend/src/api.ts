@@ -1,6 +1,6 @@
 /** Client for the analysis backend. */
 
-import type { MelodySource, Song, SourceNote } from './types'
+import type { MelodySource, Song, SoundExample, SourceNote } from './types'
 
 /** Empty means same origin; set VITE_API_BASE when the app is served elsewhere (e.g. a phone app). */
 export const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, '') ?? ''
@@ -79,12 +79,18 @@ export async function scorePart(
   start: number,
   end: number,
   source: MelodySource,
+  examples: SoundExample[] = [],
 ): Promise<JobStatus<PartResult>> {
   return json(
     await fetch(`${API_BASE}/api/songs/${songId}/parts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ start, end, source }),
+      body: JSON.stringify({
+        start,
+        end,
+        source,
+        examples: examples.map(({ time, end: e, pitch, wanted }) => ({ time, end: e, pitch, wanted })),
+      }),
     }),
   )
 }

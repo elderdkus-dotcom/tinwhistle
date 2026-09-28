@@ -25,6 +25,9 @@ interface Props {
   onKeep: () => void
   onDiscard: () => void
   onUndoLast: () => void
+  /** Notes marked as the right / wrong sound. */
+  taught: { right: number; wrong: number }
+  onForget: () => void
   onPlayDraftWhistle: () => void
   onPlaySong: (from?: number, until?: number) => void
 }
@@ -180,6 +183,18 @@ export function SongBar(props: Props) {
                 </button>
               )}
             </div>
+            <p className="muted taught">
+              {props.taught.right + props.taught.wrong > 0 ? (
+                <>
+                  Learning from your marks: {props.taught.right} right sound, {props.taught.wrong} wrong sound.{' '}
+                  <button className="link" onClick={props.onForget}>
+                    Forget them
+                  </button>
+                </>
+              ) : (
+                'Tip: tap a note and mark it “✓ Right sound” or “✗ Wrong sound” to teach which instrument to catch in the next parts.'
+              )}
+            </p>
           </div>
         )}
       </div>

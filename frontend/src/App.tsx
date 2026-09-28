@@ -12,13 +12,15 @@ import {
   type SongRequest,
 } from './api'
 import type { Demo } from './demo'
-import { EditorBar } from './components/EditorBar'
+import { EditorBar, RestBar } from './components/EditorBar'
 import { InputPanel } from './components/InputPanel'
 import { ProgressCard } from './components/ProgressCard'
 import { ScoreView } from './components/ScoreView'
 import { SongBar } from './components/SongBar'
 import {
+  addNoteAt,
   changeDuration,
+  joinWithNext,
   deleteNote,
   insertAfter,
   movePitch,
@@ -27,8 +29,9 @@ import {
   transposeAll,
 } from './editor'
 import { Player } from './player'
+import { parseRestId } from './render'
 import { posToTime, timeToPos } from './sync'
-import { LEVELS, type Level, type MelodySource, type ScoreNote, type Song } from './types'
+import { LEVELS, type Level, type MelodySource, type ScoreNote, type Song, type SoundExample } from './types'
 import { draftPart, scoredUntil, useProject, type Project } from './useProject'
 import { useSongPlayer } from './useSongPlayer'
 import './styles.css'
@@ -65,6 +68,7 @@ export default function App() {
     close,
     setLevel,
     setSource,
+    setExamples,
     addPart,
     keepPart,
     discardPart,
@@ -155,7 +159,7 @@ export default function App() {
     setError('')
     abort.current = new AbortController()
     try {
-      const started = await scorePart(song.id, start, end, source)
+      const started = await scorePart(song.id, start, end, source, currentExamples())
       setPartJob(started)
       const done = await waitForJob<PartResult>(started.id, setPartJob, abort.current.signal)
       if (done.status === 'cancelled') throw new Error('Cancelled')
@@ -254,6 +258,36 @@ export default function App() {
   // --- Editing ------------------------------------------------------------------
 
   const selected = arrangement?.notes.find((n) => n.id === selectedId) ?? null
+  const selectedRest = selectedId ? parseRestId(selectedId) : null
+  const examples = useMemo(() => project?.examples ?? [], [project?.examples])
+
+  /** A score note as an example of what it sounds like in the song. */
+  const exampleOf = useCallback(
+    (note: ScoreNote, wanted: boolean): SoundExample | null => {
+      if (!song || !arrangement) return null
+      return {
+        id: `x${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+        wanted,
+        noteId: wanted ? note.id : undefined,
+        time: posToTime(song, note.start),
+        end: posToTime(song, note.start + note.duration),
+        // Back to the pitch as heard: undo the transposition for the whistle.
+        pitch: note.pitch - arrangement.transpose,
+      }
+    },
+    [song, arrangement],
+  )
+
+  /** Examples to send, with "right sound" marks refreshed from their (maybe edited) notes. */
+  const currentExamples = useCallback((): SoundExample[] => {
+    if (!song || !arrangement) return examples
+    return examples.flatMap((ex) => {
+      if (!ex.noteId) return [ex]
+      const note = arrangement.notes.find((n) => n.id === ex.noteId)
+      if (!note) return []
+      return [{ ...exampleOf(note, true)!, id: ex.id }]
+    })
+  }, [song, arrangement, examples, exampleOf])
 
   const editNotes = useCallback(
     (change: (notes: ScoreNote[]) => ScoreNote[]) => edit((a) => ({ ...a, notes: change(a.notes) })),
@@ -276,6 +310,7 @@ export default function App() {
         setSelectedId(next ?? null)
       },
       navigate: (dir: 1 | -1) => setSelectedId(neighbour(arrangement.notes, selectedId, dir) ?? selectedId),
+      join: () => editNotes((n) => joinWithNext(n, selectedId)),
     }
   }, [selectedId, arrangement, edit, editNotes])
 
@@ -316,6 +351,7 @@ export default function App() {
         Delete: actions.remove,
         Backspace: actions.remove,
         i: actions.insert,
+        j: actions.join,
         Escape: () => setSelectedId(null),
       }
       const handler = keys[e.key]
@@ -470,6 +506,11 @@ export default function App() {
                 playWhistle(timeToPos(song, draft.start), timeToPos(song, draft.end))
               }}
               onPlaySong={playSong}
+              taught={{
+                right: examples.filter((x) => x.wanted).length,
+                wrong: examples.filter((x) => !x.wanted).length,
+              }}
+              onForget={() => setExamples(() => [])}
             />
           )}
 
@@ -589,7 +630,43 @@ export default function App() {
               onPlaySongFrom={
                 song && !songMissing ? () => playSong(selected.time ?? posToTime(song, selected.start)) : undefined
               }
+              onJoin={actions.join}
+              teach={
+                song && !songMissing
+                  ? {
+                      marked: examples.some((ex) => ex.noteId === selected.id),
+                      onRight: () => {
+                        const marked = examples.some((ex) => ex.noteId === selected.id)
+                        const ex = exampleOf(selected, true)
+                        setExamples((xs) => (marked ? xs.filter((x) => x.noteId !== selected.id) : ex ? [...xs, ex] : xs))
+                      },
+                      onWrong: () => {
+                        const ex = exampleOf(selected, false)
+                        // Delete first: the delete replaces the project, the mark then updates the latest one.
+                        actions.remove()
+                        setExamples((xs) => [...xs.filter((x) => x.noteId !== selected.id), ...(ex ? [ex] : [])])
+                      },
+                    }
+                  : undefined
+              }
               onNavigate={actions.navigate}
+              onClose={() => setSelectedId(null)}
+            />
+          )}
+
+          {selectedRest && arrangement && (
+            <RestBar
+              beats={selectedRest.beats}
+              onAdd={() => {
+                const result = addNoteAt(arrangement.notes, selectedRest.start, selectedRest.beats)
+                edit((a) => ({ ...a, notes: result.notes }))
+                setSelectedId(result.id)
+                // A note the user adds is one the analysis missed: remember it as the sound to catch.
+                const added = result.notes.find((n) => n.id === result.id)
+                const ex = added ? exampleOf(added, true) : null
+                if (ex) setExamples((xs) => [...xs, ex])
+              }}
+              onPlaySongFrom={song && !songMissing ? () => playSong(posToTime(song, selectedRest.start)) : undefined}
               onClose={() => setSelectedId(null)}
             />
           )}

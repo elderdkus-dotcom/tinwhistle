@@ -83,8 +83,10 @@ export class Player {
     this.sources.push(osc)
   }
 
-  private playNote(n: ScoreNote, at: number, length: number) {
-    const hold = length * 0.94 // a small gap so repeated notes are heard
+  private playNote(n: ScoreNote, at: number, length: number, slurred = false) {
+    // Into a different pitch the note is slurred (no gap), like a whistler
+    // changing fingers; before a rest or the same pitch it is tongued (short gap).
+    const hold = slurred ? length : length * 0.94
     if (n.ornament === 'cut') {
       this.tone(stepScale(n.pitch, 2), at, GRACE)
       this.tone(n.pitch, at + GRACE, hold - GRACE)
@@ -125,7 +127,11 @@ export class Player {
         const end = Math.min(n.start + n.duration, until)
         return { note: n, t0: at(start), t1: at(end) }
       })
-    for (const s of schedule) this.playNote(s.note, t0 + s.t0, s.t1 - s.t0)
+    schedule.forEach((s, i) => {
+      const next = schedule[i + 1]
+      const slurred = !!next && next.note.pitch !== s.note.pitch && next.t0 - s.t1 < 0.02
+      this.playNote(s.note, t0 + s.t0, s.t1 - s.t0, slurred)
+    })
     const endTime = schedule.length ? Math.max(...schedule.map((s) => s.t1)) : 0
 
     let current: string | null = null

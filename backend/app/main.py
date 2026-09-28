@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from app.audio.profile import Example
 from app.audio.separate import separation_available
 from app.jobs import Job, JobRunner
 from app.songs import SOURCES, SongInput, SongStore, analyze_part, load_song
@@ -74,11 +75,21 @@ async def create_song(
     return job_json(runner.submit("song", work))
 
 
+class ExampleNote(BaseModel):
+    """A note the user marked: the sound to catch (wanted) or to ignore."""
+
+    time: float
+    end: float
+    pitch: int  # MIDI, as heard in the song
+    wanted: bool
+
+
 class PartRequest(BaseModel):
     start: float
     end: float
     # Which instrument carries the melody: voice | whistle | flute | instrument | mix
     source: str = "voice"
+    examples: list[ExampleNote] = []
 
 
 @app.post("/api/songs/{song_id}/parts")
@@ -88,7 +99,10 @@ def create_part(song_id: str, req: PartRequest) -> dict:
         raise HTTPException(404, "This song is no longer on the server; please load it again.")
     if req.source not in SOURCES:
         raise HTTPException(400, f"Unknown melody source: {req.source}")
-    return job_json(runner.submit("part", lambda progress: analyze_part(song, req.start, req.end, req.source, progress)))
+    examples = [Example(e.time, e.end, e.pitch, e.wanted) for e in req.examples if e.end > e.time]
+    return job_json(
+        runner.submit("part", lambda progress: analyze_part(song, req.start, req.end, req.source, progress, examples))
+    )
 
 
 @app.get("/api/songs/{song_id}")

@@ -160,6 +160,16 @@ function drawFingering(g: SVGGElement, cx: number, top: number, pitch: number, s
   }
 }
 
+/** Ids of tappable rests encode where they are: "rest@<start beat>@<length in beats>". */
+export function restId(start: number, beats: number): string {
+  return `rest@${start}@${beats}`
+}
+
+export function parseRestId(id: string): { start: number; beats: number } | null {
+  const m = /^rest@([\d.]+)@([\d.]+)$/.exec(id)
+  return m ? { start: Number(m[1]), beats: Number(m[2]) } : null
+}
+
 export function renderScore(
   container: HTMLElement,
   arrangement: Arrangement,
@@ -233,7 +243,25 @@ export function renderScore(
           }
         }
         prevLastNote = t.kind === 'note' ? { note, tie: !!t.tieToNext, row: r } : null
-        if (t.kind !== 'note') return
+        if (t.kind !== 'note') {
+          // Rests can be tapped too, to add a missing note there.
+          if (m.restMeasures) return
+          const cx = note.getAbsoluteX() + note.getGlyphWidth() / 2
+          const w = Math.max(16, tokenWidth(t) - 6)
+          const id = restId(t.start, t.sixteenths / 4)
+          const hl = el('rect', {
+            x: cx - w / 2, y: r * ROW_HEIGHT + 4, width: w, height: ROW_HEIGHT - 10, rx: 6,
+            class: 'note-highlight', 'data-note-id': id,
+          }, under)
+          shapes.set(id, { highlights: [hl] })
+          overlays.push(() => {
+            el('rect', {
+              x: cx - w / 2, y: r * ROW_HEIGHT + 4, width: w, height: ROW_HEIGHT - 10,
+              class: 'tap-target', 'data-note-id': id,
+            }, svg)
+          })
+          return
+        }
         const cx = (note.getNoteHeadBeginX() + note.getNoteHeadEndX()) / 2
         const top = r * ROW_HEIGHT + FINGERING_TOP
         const colW = Math.max(18, tokenWidth(t) - 6)

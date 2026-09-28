@@ -875,3 +875,13 @@ button.round {
   background: var(--surface);
   font-weight: 600;
 }
+
+.taught {
+  font-size: 14px;
+  margin: 6px 0 0 !important;
+}
+
+.teach button[aria-pressed='true'] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}

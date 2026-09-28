@@ -57,6 +57,20 @@ export interface Part {
   source?: MelodySource
 }
 
+/**
+ * A note the user marked as the sound to catch (wanted) or to ignore, used to
+ * teach the analysis which instrument they mean (backend/app/audio/profile.py).
+ */
+export interface SoundExample {
+  id: string
+  wanted: boolean
+  /** The score note it came from, while it still exists (for "right sound" marks). */
+  noteId?: string
+  time: number // seconds in the song
+  end: number
+  pitch: number // MIDI, as heard in the song
+}
+
 export type Level = 'beginner' | 'intermediate' | 'expert'
 export const LEVELS: Level[] = ['beginner', 'intermediate', 'expert']
 

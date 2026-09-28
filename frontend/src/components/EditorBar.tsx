@@ -12,6 +12,9 @@ interface Props {
   onPlayFrom: () => void
   /** Play the original song from where this note was heard. */
   onPlaySongFrom?: () => void
+  onJoin: () => void
+  /** Teaching which sound to catch; absent for tunes without a song. */
+  teach?: { marked: boolean; onRight: () => void; onWrong: () => void }
   onNavigate: (dir: 1 | -1) => void
   onClose: () => void
 }
@@ -27,7 +30,7 @@ const TECHNIQUE_HINT = {
   'half-hole': 'half-hole the marked hole',
 }
 
-export function EditorBar({ note, onPitch, onDuration, onInsert, onDelete, onOrnament, onPlayFrom, onPlaySongFrom, onNavigate, onClose }: Props) {
+export function EditorBar({ note, onPitch, onDuration, onInsert, onDelete, onOrnament, onPlayFrom, onPlaySongFrom, onJoin, teach, onNavigate, onClose }: Props) {
   const hint = TECHNIQUE_HINT[technique(note.pitch)]
   return (
     <div className="editor-bar" role="toolbar" aria-label="Edit note">
@@ -57,7 +60,22 @@ export function EditorBar({ note, onPitch, onDuration, onInsert, onDelete, onOrn
         <div className="group">
           <button onClick={onInsert} title="Insert a note after this one (I)">Insert</button>
           <button onClick={onDelete} title="Delete (Del)">Delete</button>
+          <button onClick={onJoin} title="Join with the next note into one long note (J)">Join →</button>
         </div>
+        {teach && (
+          <div className="group teach">
+            <button
+              aria-pressed={teach.marked}
+              onClick={teach.onRight}
+              title="This is the instrument I want: catch notes that sound like this in the next parts"
+            >
+              ✓ Right sound
+            </button>
+            <button onClick={teach.onWrong} title="This is another instrument (e.g. banjo): delete it and ignore notes that sound like it">
+              ✗ Wrong sound
+            </button>
+          </div>
+        )}
         <div className="group">
           <button aria-pressed={note.ornament === 'cut'} onClick={() => onOrnament('cut')} title="Cut: a quick grace note above">Cut</button>
           <button aria-pressed={note.ornament === 'roll'} onClick={() => onOrnament('roll')} title="Roll: note, cut, note, tap, note">Roll</button>
@@ -67,6 +85,32 @@ export function EditorBar({ note, onPitch, onDuration, onInsert, onDelete, onOrn
               ▶ Song here
             </button>
           )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Shown when a rest is tapped: add a missing note there. */
+export function RestBar({ beats, onAdd, onPlaySongFrom, onClose }: {
+  beats: number
+  onAdd: () => void
+  onPlaySongFrom?: () => void
+  onClose: () => void
+}) {
+  return (
+    <div className="editor-bar" role="toolbar" aria-label="Rest">
+      <div className="editor-info">
+        <div>
+          <strong>Rest</strong>
+          <small>{LENGTH_NAMES[beats] ?? `${beats} beats`} · missing a note here? Add it, then set its pitch.</small>
+        </div>
+        <button className="icon close" onClick={onClose} aria-label="Close" title="Close (Esc)">×</button>
+      </div>
+      <div className="editor-actions">
+        <div className="group">
+          <button className="primary" onClick={onAdd}>+ Add note here</button>
+          {onPlaySongFrom && <button onClick={onPlaySongFrom}>▶ Song here</button>}
         </div>
       </div>
     </div>
