@@ -169,8 +169,9 @@ class MelodySource:
 SOURCES = {
     "voice": MelodySource("the singer", ("vocals",), "voice"),
     # The six-stem Demucs model gives guitar and piano their own stems, so they
-    # are left out; a whistle usually lands in "other" (sometimes "vocals").
-    "whistle": MelodySource("the tin whistle / flute", ("other", "vocals"), "whistle", min_share=0.003),
+    # are left out; a whistle lands in "other". (Adding "vocals" would let the
+    # singer in during verses.)
+    "whistle": MelodySource("the tin whistle / flute", ("other",), "whistle", min_share=0.003),
     "instrument": MelodySource("the instruments", ("other", "guitar", "piano"), "notes"),
     "mix": MelodySource("the whole band", (), "notes"),
 }

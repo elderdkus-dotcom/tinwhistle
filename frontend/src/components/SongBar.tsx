@@ -44,7 +44,9 @@ export function SongBar(props: Props) {
   const busy = partJob !== null && (partJob.status === 'queued' || partJob.status === 'running')
   const t = player.time
   const newLength = t - scoredUntil
-  const canScore = !busy && !draft && newLength >= MIN_PART_SECONDS && newLength <= MAX_PART_SECONDS
+  // Skipping has no length limit (e.g. a long intro); scoring does.
+  const canSkip = !busy && !draft && newLength >= MIN_PART_SECONDS
+  const canScore = canSkip && newLength <= MAX_PART_SECONDS
   const pct = (x: number) => `${Math.min(100, Math.max(0, (x / duration) * 100))}%`
   const inScored = parts.some((p) => p.kind === 'scored' && t >= p.start && t < p.end)
   const lastPart = parts[parts.length - 1]
@@ -122,22 +124,28 @@ export function SongBar(props: Props) {
               <p>
                 <strong>The whole song is scored.</strong>
               </p>
-            ) : canScore ? (
-              <div className="group">
-                <button className="primary" onClick={() => props.onScore(scoredUntil, t)}>
-                  Score {clock(scoredUntil)} → {clock(t)}
-                </button>
-                <button onClick={() => props.onSkip(scoredUntil, t)} title="Mark this stretch as having no melody to score (e.g. an intro)">
-                  Skip {clock(scoredUntil)} → {clock(t)}
-                </button>
-              </div>
-            ) : newLength > MAX_PART_SECONDS ? (
-              <p className="warning">
-                That is more than {clock(MAX_PART_SECONDS)} past the scored part. Go back a little, or score it in smaller parts.
-                <button className="link" onClick={() => player.seek(scoredUntil)}>
-                  Go to {clock(scoredUntil)}
-                </button>
-              </p>
+            ) : canSkip ? (
+              <>
+                <div className="group">
+                  {canScore && (
+                    <button className="primary" onClick={() => props.onScore(scoredUntil, t)}>
+                      Score {clock(scoredUntil)} → {clock(t)}
+                    </button>
+                  )}
+                  <button onClick={() => props.onSkip(scoredUntil, t)} title="Mark this stretch as having no melody to score (e.g. an intro, or verses you don't need)">
+                    Skip {clock(scoredUntil)} → {clock(t)}
+                  </button>
+                </div>
+                {!canScore && (
+                  <p className="muted">
+                    That is more than {clock(MAX_PART_SECONDS)} to score at once: skip it, or{' '}
+                    <button className="link" onClick={() => player.seek(scoredUntil)}>
+                      go back to {clock(scoredUntil)}
+                    </button>{' '}
+                    and score it in smaller parts.
+                  </p>
+                )}
+              </>
             ) : (
               <p className="muted">
                 {parts.length === 0 ? 'Play the song and pause where the first part should end.' : `Play on from ${clock(scoredUntil)} and pause where the next part should end.`}

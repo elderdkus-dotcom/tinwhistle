@@ -42,12 +42,13 @@ VOICE = ContourSettings(
     change_semitones=0.6, change_seconds=0.045, min_note_seconds=0.08,
     glide_seconds=0.05, smooth_seconds=0.058,
 )
-# A D whistle sounds D5 (587 Hz) up to about E7; its notes change quickly and
-# cleanly, so the contour is tracked with finer timing. Cuts and taps (~30 ms
+# A D whistle sounds D5 (587 Hz) up to about E7, a B-flat whistle from B-flat 4
+# (466 Hz); their notes change quickly and cleanly, so the contour is tracked
+# with finer timing. Cuts and taps (~30 ms
 # grace notes) are shorter than min_note_seconds and are left out, as whistle
 # sheet music usually does.
 WHISTLE = ContourSettings(
-    rate=11025, hop=64, frame=512, fmin=520.0, fmax=2700.0, voiced_prob=0.2,
+    rate=11025, hop=64, frame=512, fmin=420.0, fmax=2700.0, voiced_prob=0.2,
     change_semitones=0.6, change_seconds=0.025, min_note_seconds=0.06,
     glide_seconds=0.02, smooth_seconds=0.03,
 )

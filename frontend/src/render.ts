@@ -183,7 +183,7 @@ export function renderScore(
   const under = el('g', { class: 'highlights' }, svg)
   const key = keySignature(arrangement.notes)
   const clef = 'treble'
-  let prevLastNote: { note: StaveNote; tie: boolean } | null = null
+  let prevLastNote: { note: StaveNote; tie: boolean; row: number } | null = null
   const overlays: (() => void)[] = []
 
   rows.forEach((row, r) => {
@@ -223,11 +223,16 @@ export function renderScore(
         const note = notes[k]
         // Ties within and across measures (and rows).
         if (prevLastNote?.tie && t.kind === 'note' && t.continuation) {
-          new StaveTie({ first_note: prevLastNote.note, last_note: note, first_indices: [0], last_indices: [0] })
-            .setContext(ctx)
-            .draw()
+          const ties =
+            prevLastNote.row === r
+              ? [{ first_note: prevLastNote.note, last_note: note }]
+              : // Across a line break: a half tie at the end of one line and at the start of the next.
+                [{ first_note: prevLastNote.note, last_note: null }, { first_note: null, last_note: note }]
+          for (const tie of ties) {
+            new StaveTie({ ...tie, first_indices: [0], last_indices: [0] }).setContext(ctx).draw()
+          }
         }
-        prevLastNote = t.kind === 'note' ? { note, tie: !!t.tieToNext } : null
+        prevLastNote = t.kind === 'note' ? { note, tie: !!t.tieToNext, row: r } : null
         if (t.kind !== 'note') return
         const cx = (note.getNoteHeadBeginX() + note.getNoteHeadEndX()) / 2
         const top = r * ROW_HEIGHT + FINGERING_TOP

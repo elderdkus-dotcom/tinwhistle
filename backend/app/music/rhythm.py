@@ -8,7 +8,9 @@ from app.music.model import BeatNote, NoteEvent
 
 GRID = 0.25  # beats: sixteenth notes in 4/4
 MIN_TEMPO = 60.0
-MAX_TEMPO = 150.0
+# Fast tunes (reels, marches, rebel songs) often run at 150-180 BPM; halving
+# them would put their quick notes closer together than the sixteenth grid.
+MAX_TEMPO = 185.0
 # Gaps shorter than this (in beats) are closed by extending the previous note;
 # singers breathe and consonants cut notes short, but the score should not
 # be full of sixteenth rests.
