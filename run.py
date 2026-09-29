@@ -3,7 +3,6 @@
 Run it through start.bat (Windows) or start.command (Mac/Linux), which make
 sure it runs inside the project's .venv. Options:
   --port N            use another port (default 8000)
-  --with-separation   also install vocal separation (Demucs, large download)
   --no-browser        do not open the browser
 """
 
@@ -11,7 +10,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import importlib.util
 import json
 import shutil
 import subprocess
@@ -47,29 +45,22 @@ def pip(*args: str) -> None:
     run([sys.executable, "-m", "pip", *args])
 
 
-def requirements_hash(with_separation: bool) -> str:
+def requirements_hash() -> str:
     h = hashlib.sha256()
-    for name in ("requirements.txt", "requirements-dev.txt", "requirements-separation.txt"):
+    for name in ("requirements.txt", "requirements-dev.txt"):
         h.update((BACKEND / name).read_bytes())
-    h.update(str(with_separation).encode())
     h.update(sys.version.encode())
     return h.hexdigest()
 
 
-def install_python_packages(with_separation: bool) -> None:
+def install_python_packages() -> None:
     """Install backend packages when they are missing or the requirements changed."""
-    wanted = requirements_hash(with_separation)
+    wanted = requirements_hash()
     if STAMP.exists() and STAMP.read_text().strip() == wanted:
         return
     say("Installing Python packages (first run or after an update; this can take a few minutes)")
     pip("install", "--upgrade", "pip")
     pip("install", "-r", str(BACKEND / "requirements-dev.txt"))
-    # basic-pitch pins an old TensorFlow; we run its ONNX model instead.
-    pip("install", "--no-deps", "basic-pitch==0.4.0")
-    if with_separation:
-        say("Installing vocal separation (Demucs); this is a large download")
-        pip("install", "torch", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cpu")
-        pip("install", "-r", str(BACKEND / "requirements-separation.txt"))
     STAMP.write_text(wanted)
 
 
@@ -118,7 +109,6 @@ def open_when_ready(url: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--port", type=int, default=8000)
-    parser.add_argument("--with-separation", action="store_true")
     parser.add_argument("--no-browser", action="store_true")
     args = parser.parse_args()
 
@@ -132,19 +122,11 @@ def main() -> None:
             webbrowser.open(url)
         return
 
-    # Keep vocal separation if it was installed before.
-    with_separation = args.with_separation or importlib.util.find_spec("demucs") is not None
-    install_python_packages(with_separation)
+    install_python_packages()
     build_frontend()
 
     say(f"Starting Tin Whistle Scores at {url}")
     print("    Leave this window open while you use the app. Press Ctrl+C to stop it.", flush=True)
-    if not with_separation:
-        print(
-            "    Tip: for better results on songs with a band, run the starter once with\n"
-            "    --with-separation to install vocal separation.",
-            flush=True,
-        )
     if not args.no_browser:
         threading.Thread(target=open_when_ready, args=(url,), daemon=True).start()
 

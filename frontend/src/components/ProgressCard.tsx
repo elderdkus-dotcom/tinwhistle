@@ -14,7 +14,7 @@ function amount(step: JobStep): string {
 
 /** What the active step is doing, e.g. "73 / 140 s of the song". */
 export function activeDetail(step: JobStep): string {
-  if (step.done === null) return step.key === 'separate' ? 'Starting up (loading the separation model)…' : 'Starting…'
+  if (step.done === null) return 'Starting…'
   if (step.unit === 's') return `${amount(step)} of the song`
   return amount(step)
 }
@@ -77,26 +77,6 @@ export function ProgressCard({ job, onCancel, title = 'Loading your song…' }: 
           </ol>
         </>
       )}
-      <button onClick={onCancel}>Cancel</button>
-    </div>
-  )
-}
-
-/** One-line progress for scoring a part, shown inside the song bar. */
-export function PartProgress({ job, onCancel }: { job: JobStatus; onCancel: () => void }) {
-  const shown = useRef(0)
-  shown.current = Math.max(shown.current, job.progress)
-  const active = job.steps.find((s) => s.state === 'active')
-  return (
-    <div className="part-progress" aria-live="polite">
-      <div className="part-progress-text">
-        <strong>{job.queuePosition > 0 ? 'Waiting for another job…' : active?.label ?? 'Starting…'}</strong>
-        {active && <span className="muted"> · {activeDetail(active)}</span>}
-        <span className="muted"> · {remaining(job)}</span>
-      </div>
-      <div className="progress small">
-        <div style={{ width: `${Math.round(shown.current * 100)}%` }} />
-      </div>
       <button onClick={onCancel}>Cancel</button>
     </div>
   )

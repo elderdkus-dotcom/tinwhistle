@@ -1,21 +1,24 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { renderScore, type NoteShapes } from '../render'
-import type { Arrangement } from '../types'
+import { parseRestId, renderScore, type NoteShapes } from '../render'
+import type { Score } from '../types'
 
 interface Props {
-  arrangement: Arrangement
+  arrangement: Score
   showNames: boolean
   selectedId: string | null
+  /** A selected stretch of rest (score positions), highlighted wherever rests fall in it. */
+  selectedRange?: { start: number; end: number } | null
   playingId: string | null
-  /** Notes of this part are tinted: the draft the user is reviewing. */
-  draftPartId?: string
+  /** Where the song is (score position); rests there are highlighted as it plays. */
+  playingPos?: number | null
   onSelect: (id: string | null) => void
 }
 
-export function ScoreView({ arrangement, showNames, selectedId, playingId, draftPartId, onSelect }: Props) {
+export function ScoreView({ arrangement, showNames, selectedId, selectedRange, playingId, playingPos, onSelect }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const shapes = useRef(new Map<string, NoteShapes>())
   const [width, setWidth] = useState(0)
+  const followed = useRef<SVGRectElement | undefined>(undefined)
 
   useLayoutEffect(() => {
     const node = ref.current
@@ -35,19 +38,24 @@ export function ScoreView({ arrangement, showNames, selectedId, playingId, draft
   }, [arrangement, width, showNames])
 
   useEffect(() => {
-    const draftIds = new Set(arrangement.notes.filter((n) => draftPartId && n.part === draftPartId).map((n) => n.id))
+    let follow: SVGRectElement | undefined
     for (const [id, s] of shapes.current) {
+      const rest = parseRestId(id)
+      const selected =
+        id === selectedId ||
+        (!!rest && !!selectedRange && rest.start < selectedRange.end - 1e-9 && rest.start + rest.beats > selectedRange.start + 1e-9)
+      const playing =
+        id === playingId ||
+        (!!rest && playingPos != null && playingPos >= rest.start && playingPos < rest.start + rest.beats)
       for (const rect of s.highlights) {
-        rect.classList.toggle('selected', id === selectedId)
-        rect.classList.toggle('playing', id === playingId)
-        rect.classList.toggle('draft', draftIds.has(id))
+        rect.classList.toggle('selected', selected)
+        rect.classList.toggle('playing', playing)
       }
+      if (playing && !follow) follow = s.highlights[0]
     }
-    if (playingId) {
-      const rect = shapes.current.get(playingId)?.highlights[0]
-      rect?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-    }
-  }, [selectedId, playingId, draftPartId, arrangement, width, showNames])
+    if (follow && follow !== followed.current) follow.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    followed.current = follow
+  }, [selectedId, selectedRange, playingId, playingPos, arrangement, width, showNames])
 
   return (
     <div

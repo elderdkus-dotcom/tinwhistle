@@ -19,7 +19,7 @@ import {
 } from 'vexflow/bravura'
 import { keySignature } from './arrange'
 import { toMeasures, type Measure, type Token } from './notation'
-import type { Arrangement } from './types'
+import type { Score } from './types'
 import { fingering, noteName, register, scientificName, stepScale } from './whistle'
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
@@ -172,7 +172,7 @@ export function parseRestId(id: string): { start: number; beats: number } | null
 
 export function renderScore(
   container: HTMLElement,
-  arrangement: Arrangement,
+  arrangement: Score,
   options: RenderOptions,
 ): Map<string, NoteShapes> {
   container.innerHTML = ''

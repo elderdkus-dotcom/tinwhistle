@@ -1,9 +1,9 @@
-"""Songs are loaded once, then scored one part at a time.
+"""Loading a song to write a score against.
 
-Loading downloads and decodes the song and finds its beat grid and bar
-lines. Every part is then quantized onto that same grid, so parts line up
-into one continuous score, and each note remembers where it was heard in
-the song so the app can highlight it during playback.
+Loading downloads (or takes the upload / recording), decodes it and finds
+its beat grid and bar lines. The user then writes the score while the song
+plays; the beat grid maps between song time and score position, so the
+score can follow the music and new notes land on the right beat.
 """
 
 from __future__ import annotations
@@ -13,26 +13,17 @@ import tempfile
 import threading
 import uuid
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
-from app.audio import fetch, profile, separate, transcribe, voice, whistle
-from app.music import melody, rhythm
+from app.audio import fetch
+from app.music import rhythm
 from app.progress import Progress
 
 MAX_SONG_SECONDS = 20 * 60
-MAX_PART_SECONDS = 150
-MIN_PART_SECONDS = 1.0
 MAX_SONGS_KEPT = 5
-MAX_CACHED_STEM_SECONDS = 240.0
-MAX_EXAMPLES = 24
-# Audio analyzed around a part so notes at its edges are heard whole.
-CONTEXT_BEFORE = 1.0
-CONTEXT_AFTER = 1.5
-# Seconds of work per second of audio for each detector (reference speed).
-DETECTOR_COSTS = {"voice": 0.06, "whistle": 0.7, "flute": 0.7, "notes": 0.015}
 
 
 @dataclass
@@ -54,20 +45,6 @@ class Song:
     beats: np.ndarray  # beat times, seconds
     beats_per_measure: int
     origin: float  # beat index of score position 0 (a downbeat)
-    # Separated stems of recently scored clips: (start, end, stems). Kept so
-    # notes the user marks can be measured without separating again.
-    stem_cache: list[tuple[float, float, dict[str, np.ndarray]]] = field(default_factory=list)
-
-    def cache_stems(self, start: float, end: float, stems: dict[str, np.ndarray]) -> None:
-        self.stem_cache.append((start, end, stems))
-        while sum(e - s for s, e, _ in self.stem_cache) > MAX_CACHED_STEM_SECONDS and len(self.stem_cache) > 1:
-            self.stem_cache.pop(0)
-
-    def cached_stems(self, t0: float, t1: float) -> tuple[float, dict[str, np.ndarray]] | None:
-        for s, e, stems in reversed(self.stem_cache):
-            if s <= t0 and t1 <= e:
-                return s, stems
-        return None
 
     @property
     def duration(self) -> float:
@@ -165,209 +142,3 @@ def load_song(song_id: str, workdir: Path, inp: SongInput, progress: Progress) -
         beats_per_measure=inp.beats_per_measure,
         origin=origin,
     )
-
-
-@dataclass(frozen=True)
-class MelodySource:
-    """Where to take a part's melody from."""
-
-    label: str
-    stems: tuple[str, ...]  # Demucs stems to mix; empty means the whole song
-    detector: str  # "voice" (pYIN), "whistle" / "flute" (see app/audio/whistle.py) or "notes" (Basic Pitch)
-    min_freq: float = 80.0  # Hz; for the "notes" detector
-    max_freq: float = 2100.0
-    # Below this share of the mix's energy the stems count as empty and the
-    # whole mix is used. A whistle can be much quieter than the band and its
-    # stem is still the best place to listen, so its threshold is low.
-    min_share: float = separate.MIN_STEM_ENERGY_RATIO
-
-
-SOURCES = {
-    "voice": MelodySource("the singer", ("vocals",), "voice"),
-    # The six-stem Demucs model gives guitar and piano their own stems, so they
-    # are left out; a whistle lands in "other". (Adding "vocals" would let the
-    # singer in during verses.)
-    "whistle": MelodySource("the tin whistle", ("other",), "whistle", min_share=0.003),
-    # A concert flute or low whistle plays an octave lower (down to about A3).
-    "flute": MelodySource("the flute / low whistle", ("other",), "flute", min_share=0.003),
-    "instrument": MelodySource("the instruments", ("other", "guitar", "piano"), "notes"),
-    "mix": MelodySource("the whole band", (), "notes"),
-}
-
-
-def _learn(
-    song: Song, src: MelodySource, examples: list[profile.Example], progress: Progress
-) -> tuple[profile.SoundProfile, list[str] | None]:
-    """Measure the notes the user marked as the right / wrong sound.
-
-    Returns the sound profile and, when separation is on, the separated
-    tracks that hold the marked instrument (a flute can land in "piano",
-    a banjo in "other"; the marks tell which is which).
-    """
-    examples = examples[-MAX_EXAMPLES:]
-    separating = bool(src.stems) and separate.separation_available()
-
-    def stems_for(t0: float, t1: float) -> tuple[float, dict[str, np.ndarray]] | None:
-        if not separating:
-            return None
-        cached = song.cached_stems(t0, t1)
-        if cached is None:
-            # Not heard in a recent part: separate a little window around it.
-            w0, w1 = max(0.0, t0 - 1.5), min(song.duration, t1 + 1.5)
-            stems = separate.separate_stems(song.y[int(w0 * song.sr) : int(w1 * song.sr)], song.sr, None, progress.cancelled)
-            song.cache_stems(w0, w1, stems)
-            cached = (w0, stems)
-        return cached
-
-    tracks = None
-    if separating:
-        shares = []
-        for ex in examples:
-            found = stems_for(ex.time, ex.end)
-            if found:
-                shares.append((ex, profile.track_shares(found[1], song.sr, found[0], ex)))
-        tracks = profile.choose_tracks(shares)
-    names = tracks or list(src.stems)
-    spectra: dict[int, profile.Spectrum] = {}
-
-    def spectrum_for(t0: float, t1: float) -> profile.Spectrum | None:
-        found = stems_for(t0, t1)
-        if found is None:
-            w0 = max(0.0, t0 - 1.0)
-            return profile.Spectrum(song.y[int(w0 * song.sr) : int((t1 + 1.0) * song.sr)], song.sr, w0)
-        offset, stems = found
-        key = id(stems)
-        if key not in spectra:
-            spectra[key] = profile.Spectrum(sum(stems[n] for n in names if n in stems), song.sr, offset)
-        return spectra[key]
-
-    return profile.build_profile(examples, spectrum_for), tracks
-
-
-def analyze_part(
-    song: Song,
-    start: float,
-    end: float,
-    source: str,
-    progress: Progress,
-    examples: list[profile.Example] | None = None,
-) -> dict:
-    """Transcribe the melody between `start` and `end` seconds of the song.
-
-    `source` picks the instrument (see SOURCES). `examples` are notes the
-    user marked as the right or wrong sound; they teach which sound to keep.
-    """
-    if source not in SOURCES:
-        raise fetch.AudioError(f"Unknown melody source: {source}")
-    src = SOURCES[source]
-    start = max(0.0, start)
-    end = min(song.duration, end)
-    if end - start < MIN_PART_SECONDS:
-        raise fetch.AudioError("That part is too short; let the song play a little further.")
-    if end - start > MAX_PART_SECONDS:
-        raise fetch.AudioError(
-            f"Parts can be at most {MAX_PART_SECONDS // 60} minutes and {MAX_PART_SECONDS % 60} seconds; "
-            "stop the song a bit earlier."
-        )
-
-    use_separation = bool(src.stems) and separate.separation_available()
-    learning = bool(examples) and src.detector != "voice"
-    steps = [("notes", "Listening for notes"), ("melody", "Following the melody")]
-    if learning:
-        steps.insert(0, ("learn", "Learning from the notes you marked"))
-    if use_separation:
-        steps.insert(0, ("separate", f"Separating {src.label} from the rest"))
-    progress.plan(
-        steps,
-        costs={"notes": DETECTOR_COSTS[src.detector]},
-        startup={"separate": 0.0 if separate.model_loaded() else 15.0},
-    )
-
-    clip_start = max(0.0, start - CONTEXT_BEFORE)
-    clip_end = min(song.duration, end + CONTEXT_AFTER)
-    clip = song.y[int(clip_start * song.sr) : int(clip_end * song.sr)]
-    clip_len = len(clip) / song.sr
-    progress.set_song_length(clip_len)
-    warnings: list[str] = []
-
-    audio, isolated = clip, False
-    learned: profile.SoundProfile | None = None
-    used_tracks = list(src.stems)
-    if use_separation:
-        progress.start("separate")
-        try:
-            stems = separate.separate_stems(
-                clip, song.sr, lambda done: progress.update("separate", done, clip_len), progress.cancelled
-            )
-        except separate.SeparationCancelled:
-            progress.check()
-            raise
-        song.cache_stems(clip_start, clip_end, stems)
-        if learning:
-            progress.start("learn")
-            learned, tracks = _learn(song, src, examples or [], progress)
-            if tracks:
-                used_tracks = tracks
-        picked = sum(stems[name] for name in used_tracks if name in stems)
-        if separate.has_enough(picked, clip, src.min_share):
-            audio, isolated = picked, True
-        else:
-            warnings.append(f"Could not hear {src.label} in this part, so the melody was taken from the whole band.")
-    elif src.stems:
-        warnings.append(f"Separation is not installed, so {src.label} was picked out of the whole band by its range only.")
-
-    judge = None
-    if learning and learned is None:
-        progress.start("learn")
-        learned, _ = _learn(song, src, examples or [], progress)
-    if learned is not None and not learned.empty:
-        # Judge notes by the unprocessed audio, where a banjo still sounds like a banjo.
-        spectrum = profile.Spectrum(audio, song.sr, clip_start)
-        judge = lambda notes: profile.filter_notes(notes, spectrum, learned)  # noqa: E731
-
-    progress.start("notes")
-    report = lambda done: progress.update("notes", min(done, clip_len), clip_len)  # noqa: E731
-    if src.detector == "voice" and isolated:
-        events = voice.transcribe_voice(audio, song.sr, report)
-    elif src.detector in ("whistle", "flute"):
-        lead = whistle.TIN_WHISTLE if src.detector == "whistle" else whistle.FLUTE
-        events = whistle.lead_notes(audio, song.sr, isolated, lead, report, judge)
-    else:
-        events = transcribe.transcribe(
-            audio, song.sr, isolated=isolated, on_progress=report, min_freq=src.min_freq, max_freq=src.max_freq
-        )
-        if judge:
-            events = judge(events)
-
-    progress.start("melody")
-    line = melody.extract_melody(events, lambda done: progress.update("melody", min(done, clip_len), clip_len))
-    for n in line:
-        n.start += clip_start
-        n.end += clip_start
-    # Only notes that begin inside the part; the context is just for hearing them whole.
-    line = [n for n in line if start <= n.start < end]
-    notes = rhythm.quantize(line, song.beats)
-    if not notes:
-        warnings.append(f"No melody from {src.label} was found in this part.")
-    progress.finish_all()
-    if learning and used_tracks != list(src.stems):
-        warnings.append(
-            "Listened to the " + " + ".join(used_tracks) + " track(s) of the separated band, where the notes you marked are."
-        )
-    return {
-        "start": start,
-        "end": end,
-        "source": source,
-        "separated": isolated,
-        "warnings": warnings,
-        "notes": [
-            {
-                "pitch": n.pitch,
-                "start": round(n.start - song.origin, 4),
-                "duration": n.duration,
-                "time": round(n.time, 3),
-                "timeEnd": round(n.time_end, 3),
-            }
-            for n in notes
-        ],
-    }

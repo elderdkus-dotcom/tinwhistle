@@ -1,248 +1,118 @@
-/**
- * The open song: the parts scored so far, one arrangement per level, and undo
- * history. Songs are scored part by part: a new part arrives as a draft, and
- * the user keeps or discards it before scoring the next one.
- */
+/** The score being written, with undo/redo, kept in the browser between visits. */
 
 import { useCallback, useEffect, useState } from 'react'
-import { appendPart, arrange, removePart } from './arrange'
-import type { Arrangement, Level, Melody, MelodySource, Part, Song, SoundExample, SourceNote } from './types'
+import type { ScoreNote, Song } from './types'
 
 export interface Project {
-  /** The loaded song; null for the built-in demo tunes, which have no audio. */
-  song: Song | null
+  version: 3
   title: string
-  tempo: number
+  /** The song or recording it is written against; null for a score on its own. */
+  song: Song | null
   beatsPerMeasure: number
-  parts: Part[]
-  /** The instrument to take the next part's melody from. */
-  source?: MelodySource
-  /** Notes marked as the right / wrong sound, sent along when scoring parts. */
-  examples?: SoundExample[]
-  level: Level
-  arrangements: Partial<Record<Level, Arrangement>>
+  /** Playback tempo for the score when there is no song. */
+  tempo: number
+  notes: ScoreNote[]
 }
 
-interface History {
-  past: Arrangement[]
-  future: Arrangement[]
+const STORAGE_KEY = 'tinwhistle.project.v3'
+const MAX_UNDO = 200
+
+export function newProject(title: string, song: Song | null, beatsPerMeasure: number, notes: ScoreNote[] = [], tempo = 100): Project {
+  return { version: 3, title, song, beatsPerMeasure, tempo: Math.round(song?.tempo ?? tempo), notes }
 }
 
-const STORAGE_KEY = 'tinwhistle:project:v2'
-const MAX_HISTORY = 100
+/** Check a saved file and bring it to the current format. Throws if it is not a score. */
+export function parseProject(data: unknown): Project {
+  const p = data as Partial<Project>
+  if (!p || p.version !== 3 || !Array.isArray(p.notes) || typeof p.beatsPerMeasure !== 'number') {
+    throw new Error('That file is not a saved whistle score (or was saved by an older version).')
+  }
+  return {
+    version: 3,
+    title: String(p.title ?? ''),
+    song: p.song ?? null,
+    beatsPerMeasure: p.beatsPerMeasure,
+    tempo: typeof p.tempo === 'number' ? p.tempo : 100,
+    notes: p.notes.map((n, i) => ({ ...n, id: n.id || `n${i}` })),
+  }
+}
 
-function loadStored(): Project | null {
+/** The score from the last visit, if any. */
+export function savedProject(): Project | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? (JSON.parse(raw) as Project) : null
+    return raw ? parseProject(JSON.parse(raw)) : null
   } catch {
     return null
   }
 }
 
-export function melodyOf(p: Project): Melody {
-  const notes: SourceNote[] = p.parts.flatMap((part) => part.notes.map((n) => ({ ...n, part: part.id })))
-  return { tempo: p.tempo, beatsPerMeasure: p.beatsPerMeasure, notes }
-}
-
-/** Where scoring has got to in the song, in seconds. */
-export function scoredUntil(p: Project): number {
-  return p.parts.reduce((m, part) => Math.max(m, part.end), 0)
-}
-
-export function draftPart(p: Project): Part | undefined {
-  return p.parts.find((part) => part.status === 'draft')
-}
-
-function withLevel(p: Project, level: Level): Project {
-  if (p.arrangements[level] || p.parts.every((part) => part.notes.length === 0)) return { ...p, level }
-  return { ...p, level, arrangements: { ...p.arrangements, [level]: arrange(melodyOf(p), level) } }
-}
-
-let partCounter = 0
-function newPartId(): string {
-  partCounter += 1
-  return `p${Date.now().toString(36)}${partCounter}`
+interface History {
+  project: Project | null
+  past: Project[]
+  future: Project[]
 }
 
 export function useProject() {
-  const [project, setProject] = useState<Project | null>(loadStored)
-  const [history, setHistory] = useState<Partial<Record<Level, History>>>({})
+  const [h, setH] = useState<History>({ project: null, past: [], future: [] })
 
   useEffect(() => {
-    try {
-      if (project) localStorage.setItem(STORAGE_KEY, JSON.stringify(project))
-      else localStorage.removeItem(STORAGE_KEY)
-    } catch {
-      // Storage may be unavailable (private mode); the app still works.
-    }
-  }, [project])
+    if (!h.project) return
+    const timer = setTimeout(() => {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(h.project))
+      } catch {
+        // storage full or blocked: the score still works, it just is not kept
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [h.project])
 
-  /** Start working on a freshly loaded song (nothing scored yet). */
-  const openSong = useCallback((song: Song) => {
-    setHistory({})
-    setProject({
-      song,
-      title: song.title,
-      tempo: song.tempo,
-      beatsPerMeasure: song.beatsPerMeasure,
-      parts: [],
-      level: 'beginner',
-      arrangements: {},
-    })
-  }, [])
-
-  /** Open a demo tune: one kept part, no audio. */
-  const openTune = useCallback((title: string, melody: Melody) => {
-    setHistory({})
-    const part: Part = {
-      id: 'demo',
-      start: 0,
-      end: 0,
-      kind: 'scored',
-      status: 'kept',
-      notes: melody.notes,
-      separated: false,
-      warnings: [],
-    }
-    const base: Project = {
-      song: null,
-      title,
-      tempo: melody.tempo,
-      beatsPerMeasure: melody.beatsPerMeasure,
-      parts: [part],
-      level: 'beginner',
-      arrangements: {},
-    }
-    setProject(withLevel(base, 'beginner'))
-  }, [])
-
-  const restore = useCallback((p: Project) => {
-    setHistory({})
-    setProject(withLevel(p, p.level))
-  }, [])
+  const open = useCallback((project: Project) => setH({ project, past: [], future: [] }), [])
 
   const close = useCallback(() => {
-    setHistory({})
-    setProject(null)
+    setH({ project: null, past: [], future: [] })
+    try {
+      localStorage.removeItem(STORAGE_KEY)
+    } catch {
+      // ignore
+    }
   }, [])
 
-  const setSource = useCallback((source: MelodySource) => {
-    setProject((p) => (p ? { ...p, source } : p))
-  }, [])
-
-  const setExamples = useCallback((change: (examples: SoundExample[]) => SoundExample[]) => {
-    setProject((p) => (p ? { ...p, examples: change(p.examples ?? []) } : p))
-  }, [])
-
-  const setLevel = useCallback((level: Level) => {
-    setProject((p) => (p ? withLevel(p, level) : p))
-  }, [])
-
-  /** Add a newly scored (or skipped) stretch of the song as a draft. */
-  const addPart = useCallback((part: Omit<Part, 'id' | 'status'>, status: Part['status'] = 'draft') => {
-    const id = newPartId()
-    setHistory({})
-    setProject((p) => {
-      if (!p) return p
-      const full: Part = { ...part, id, status }
-      const next: Project = { ...p, parts: [...p.parts, full] }
-      const arrangements: Project['arrangements'] = {}
-      for (const [level, arr] of Object.entries(p.arrangements) as [Level, Arrangement][]) {
-        arrangements[level] = appendPart(arr, id, full.notes)
-      }
-      next.arrangements = arrangements
-      return withLevel(next, p.level)
+  /** Change the project as one undoable step. */
+  const edit = useCallback((change: (p: Project) => Project) => {
+    setH((prev) => {
+      if (!prev.project) return prev
+      const next = change(prev.project)
+      if (next === prev.project) return prev
+      return { project: next, past: [...prev.past.slice(-MAX_UNDO), prev.project], future: [] }
     })
-    return id
   }, [])
 
-  const keepPart = useCallback((id: string) => {
-    setProject((p) =>
-      p ? { ...p, parts: p.parts.map((part) => (part.id === id ? { ...part, status: 'kept' } : part)) } : p,
+  const undo = useCallback(() => {
+    setH((prev) =>
+      prev.past.length && prev.project
+        ? { project: prev.past[prev.past.length - 1], past: prev.past.slice(0, -1), future: [prev.project, ...prev.future] }
+        : prev,
     )
   }, [])
 
-  const discardPart = useCallback((id: string) => {
-    setHistory({})
-    setProject((p) => {
-      if (!p) return p
-      const parts = p.parts.filter((part) => part.id !== id)
-      const arrangements: Project['arrangements'] = {}
-      if (parts.some((part) => part.notes.length > 0)) {
-        for (const [level, arr] of Object.entries(p.arrangements) as [Level, Arrangement][]) {
-          arrangements[level] = removePart(arr, id)
-        }
-      }
-      return { ...p, parts, arrangements }
-    })
+  const redo = useCallback(() => {
+    setH((prev) =>
+      prev.future.length && prev.project
+        ? { project: prev.future[0], past: [...prev.past, prev.project], future: prev.future.slice(1) }
+        : prev,
+    )
   }, [])
 
-  /** Apply an edit to the current level's arrangement, recording undo history. */
-  const edit = useCallback(
-    (change: (a: Arrangement) => Arrangement) => {
-      if (!project) return
-      const level = project.level
-      const before = project.arrangements[level]
-      if (!before) return
-      const after = change(before)
-      if (after === before) return
-      setHistory((h) => ({
-        ...h,
-        [level]: { past: [...(h[level]?.past ?? []), before].slice(-MAX_HISTORY), future: [] },
-      }))
-      setProject({ ...project, arrangements: { ...project.arrangements, [level]: after } })
-    },
-    [project],
-  )
-
-  /** Rebuild the current level from the scored parts (drops edits on this level). */
-  const resetLevel = useCallback(() => {
-    if (project) edit(() => arrange(melodyOf(project), project.level))
-  }, [project, edit])
-
-  const step = useCallback(
-    (direction: 'undo' | 'redo') => {
-      if (!project) return
-      const level = project.level
-      const h = history[level]
-      const current = project.arrangements[level]
-      if (!h || !current) return
-      const from = direction === 'undo' ? h.past : h.future
-      if (from.length === 0) return
-      const target = from[from.length - 1]
-      const rest = from.slice(0, -1)
-      setHistory({
-        ...history,
-        [level]:
-          direction === 'undo'
-            ? { past: rest, future: [...h.future, current] }
-            : { past: [...h.past, current], future: rest },
-      })
-      setProject({ ...project, arrangements: { ...project.arrangements, [level]: target } })
-    },
-    [project, history],
-  )
-
-  const level = project?.level
   return {
-    project,
-    arrangement: project && level ? project.arrangements[level] ?? null : null,
-    canUndo: !!(level && history[level]?.past.length),
-    canRedo: !!(level && history[level]?.future.length),
-    openSong,
-    openTune,
-    restore,
+    project: h.project,
+    canUndo: h.past.length > 0,
+    canRedo: h.future.length > 0,
+    open,
     close,
-    setLevel,
-    setSource,
-    setExamples,
-    addPart,
-    keepPart,
-    discardPart,
     edit,
-    resetLevel,
-    undo: () => step('undo'),
-    redo: () => step('redo'),
+    undo,
+    redo,
   }
 }

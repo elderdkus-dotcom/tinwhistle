@@ -11,6 +11,11 @@ export interface SongPlayer {
   play: (from?: number, stopAt?: number) => void
   pause: () => void
   seek: (t: number) => void
+  /** The exact playing position right now (for tapping in time). */
+  now: () => number
+  /** Playback speed, 0.5 to 1 (the pitch stays the same). */
+  rate: number
+  setRate: (rate: number) => void
 }
 
 export function useSongPlayer(src: string | null): SongPlayer {
@@ -104,5 +109,27 @@ export function useSongPlayer(src: string | null): SongPlayer {
     [audio],
   )
 
-  return { time, playing, duration, error, play, pause, seek }
+  const [rate, setRateState] = useState(1)
+  const setRate = useCallback(
+    (r: number) => {
+      audio.preservesPitch = true
+      audio.playbackRate = r
+      setRateState(r)
+    },
+    [audio],
+  )
+  // A new source resets the element's speed; keep the chosen one.
+  useEffect(() => {
+    const keep = () => {
+      audio.preservesPitch = true
+      audio.playbackRate = rate
+    }
+    keep()
+    audio.addEventListener('loadedmetadata', keep)
+    return () => audio.removeEventListener('loadedmetadata', keep)
+  }, [audio, rate])
+
+  const now = useCallback(() => audio.currentTime, [audio])
+
+  return { time, playing, duration, error, play, pause, seek, now, rate, setRate }
 }

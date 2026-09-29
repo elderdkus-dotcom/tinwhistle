@@ -1,6 +1,6 @@
-/** Client for the analysis backend. */
+/** Client for the backend, which loads songs and recordings and finds their beat. */
 
-import type { MelodySource, Song, SoundExample, SourceNote } from './types'
+import type { Song } from './types'
 
 /** Empty means same origin; set VITE_API_BASE when the app is served elsewhere (e.g. a phone app). */
 export const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, '') ?? ''
@@ -15,19 +15,9 @@ export interface JobStep {
   unit: 's' | 'MB' | ''
 }
 
-/** Result of scoring one part of a song (backend/app/songs.py: analyze_part). */
-export interface PartResult {
-  start: number
-  end: number
-  source: MelodySource
-  separated: boolean
-  warnings: string[]
-  notes: SourceNote[]
-}
-
 export interface JobStatus<R = unknown> {
   id: string
-  kind: 'song' | 'part'
+  kind: 'song'
   status: 'queued' | 'running' | 'done' | 'error' | 'cancelled'
   stage: string
   progress: number
@@ -62,7 +52,7 @@ async function json<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>
 }
 
-export async function health(): Promise<{ ok: boolean; separation: boolean }> {
+export async function health(): Promise<{ ok: boolean }> {
   return json(await fetch(`${API_BASE}/api/health`))
 }
 
@@ -72,27 +62,6 @@ export async function loadSong(req: SongRequest): Promise<JobStatus<{ song: Song
   if (req.url) form.append('url', req.url)
   form.append('beats_per_measure', String(req.beatsPerMeasure))
   return json(await fetch(`${API_BASE}/api/songs`, { method: 'POST', body: form }))
-}
-
-export async function scorePart(
-  songId: string,
-  start: number,
-  end: number,
-  source: MelodySource,
-  examples: SoundExample[] = [],
-): Promise<JobStatus<PartResult>> {
-  return json(
-    await fetch(`${API_BASE}/api/songs/${songId}/parts`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        start,
-        end,
-        source,
-        examples: examples.map(({ time, end: e, pitch, wanted }) => ({ time, end: e, pitch, wanted })),
-      }),
-    }),
-  )
 }
 
 /** Whether the server still has this song (it keeps only the most recent few). */

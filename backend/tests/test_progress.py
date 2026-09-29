@@ -14,7 +14,11 @@ class Clock:
 def make(song=270.0):
     clock = Clock()
     p = Progress(clock=clock)
-    p.plan([("decode", "Reading"), ("separate", "Separating"), ("beats", "Beats"), ("notes", "Notes"), ("melody", "Melody")])
+    p.plan(
+        [("decode", "Reading"), ("separate", "Separating"), ("beats", "Beats"), ("notes", "Notes"), ("melody", "Melody")],
+        costs={"separate": 0.45, "beats": 0.015, "notes": 0.015, "melody": 0.005},
+        startup={"separate": 15.0, "notes": 1.0},
+    )
     p.start("decode")
     p.set_song_length(song)
     return p, clock

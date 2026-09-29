@@ -47,26 +47,12 @@ def test_load_song_round_trip(monkeypatch, tmp_path):
     assert client.get(f"/api/songs/{song['id']}/audio").status_code == 200
 
 
-def test_part_analysis_on_real_audio(tmp_path):
-    song = fake_song(tmp_path)
-    client = TestClient(main.app)
-    job = client.post(f"/api/songs/{song.id}/parts", json={"start": 1.0, "end": 5.0, "source": "mix"}).json()
-    data = wait(client, job["id"])
-    assert data["status"] == "done", data["error"]
-    notes = data["result"]["notes"]
-    assert notes and all(n["pitch"] == 69 for n in notes)  # the A440 tone, heard as A4
-    assert 1.0 <= notes[0]["time"] < 5.0
-    assert notes[0]["start"] == round(notes[0]["time"] / 0.5 * 4) / 4  # on the song's beat grid
-
-
 def test_rejects_bad_requests(tmp_path):
     client = TestClient(main.app)
     assert client.post("/api/songs", data={"url": ""}).status_code == 400
     assert client.post("/api/songs", data={"url": "file:///etc/passwd"}).status_code == 400
-    assert client.post("/api/songs/nope/parts", json={"start": 0, "end": 5}).status_code == 404
-    song = fake_song(tmp_path, "s2")
-    job = client.post(f"/api/songs/{song.id}/parts", json={"start": 2, "end": 2.5, "source": "mix"}).json()
-    assert "too short" in wait(client, job["id"])["error"]
+    assert client.get("/api/songs/nope").status_code == 404
+    assert client.get("/api/songs/nope/audio").status_code == 404
 
 
 def test_progress_and_cancel(monkeypatch):
@@ -83,8 +69,8 @@ def test_progress_and_cancel(monkeypatch):
             time.sleep(0.01)
 
     client = TestClient(main.app)
-    first = main.runner.submit("part", slow)
-    second = main.runner.submit("part", slow)
+    first = main.runner.submit("song", slow)
+    second = main.runner.submit("song", slow)
     assert started.wait(2)
     data = client.get(f"/api/jobs/{first.id}").json()
     assert data["stage"] == "Separating"

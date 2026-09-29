@@ -1,56 +1,67 @@
 # Tin Whistle Scores
 
-Turn a song (a YouTube link or an MP3) into sheet music for the **D tin whistle**, with a
-fingering chart (filled and open holes) under every note. It is a web app, built so it can become a phone app later.
+Write sheet music for the **D tin whistle** by ear, with a fingering chart (filled and open holes) under every
+note. It is a web app, built so it can become a phone app later.
 
-**You build the score part by part while listening:**
+There are three ways to start:
 
-1. **Load the song.** The app downloads and decodes it, and finds the beat and bar lines.
-2. **Play the song and pause** where you want the next part to end, then press **Score**. For an instrumental intro, press **Skip** instead.
-   Use **Melody from** to choose what to score:
-   - **Singer**
-   - **Tin whistle:** from A4 upwards, so B♭ and C whistles fit as well as D.
-   - **Flute / low whistle:** from A3 upwards, an octave lower than a tin whistle.
+1. **A song:** paste a YouTube link or pick an MP3 (or other audio file).
+2. **Hum a tune:** record the tune in your head into the microphone, singing, humming or whistling, optionally
+   to a metronome.
+3. **An empty score** with no song.
 
-   For both of these, guitar and piano are separated out first. Drones, held chords and banjo/mandolin tremolo are removed before listening.
-   - **Other instrument**
-   - **Whole band**
-3. **Review the new part.** It is tinted blue in the score. Play the song and the whistle version to compare, then press **Keep** or **Discard**.
-4. **Carry on** from where the score ends.
+You then get an empty score sheet. The song or recording plays in the background while you write the notes.
 
-While the song plays, the note being sung is highlighted in the score. The timeline shows which stretches are already scored.
+## Writing a score
 
-Other features:
-- **Automatic transposition** into a key the whistle can play (usually D or G major).
-- **Three levels:**
-  - **Beginner:** natural notes only, no sixteenths, slower tempo.
-  - **Intermediate:** both octaves, C natural, full rhythm.
-  - **Expert:** half-holed notes, cuts and rolls.
-- **Whistle playback:** speed control, count-in, and a "whistle along" option that plays the score in time with the song.
-- **Editing:**
-  - Tap a note to change its pitch or length, insert or delete it, **Join** it with the next note, add ornaments, or play the song from that note.
-  - Tap a rest to **add a missing note** there.
-  - Undo and redo work.
-- **Teach it the instrument:** mark notes as **✓ Right sound** or **✗ Wrong sound** (e.g. the flute versus a banjo). Added notes count as right sounds. When the next parts are scored, the app:
-  - listens to the separated track(s) that hold the right sound;
-  - drops notes that sound like the wrong one, judging by overtones, tremolo flicker and fade.
-- **Output:** print or save as PDF. You can save and reopen projects as `.whistle.json` files.
+- Press **Space** to play or pause the song. Pause where the tune starts.
+- Press **→** to add a note there, then **↑ / ↓** to move it through the whistle's notes until it sounds right.
+  - **Shift+↑/↓** moves by a semitone.
+  - You can also tap a **fingering** on the note pad, or type the letters **D E F G A B C**. F and C give F♯ and
+    C♯, in the octave nearest the last note.
+- **→** moves on. After the last note it adds a new one, a copy of the one before, ready to change.
+- **1–5** set the length (sixteenth, eighth, quarter, half, whole) and **.** makes it dotted.
+- **Delete** turns a note into a rest.
+- **Enter** plays just the selected note's stretch of the song, so you can compare.
+- Selecting a note moves the song there, so **Space** plays from that note.
+- **Tap in the rhythm:** while the song plays, hold **N**, or the *Hold for a note* button, for as long as each
+  note lasts. The notes snap to the beat grid (1/8 by default). Then go back and set their pitches.
+- **Other tools:**
+  - **Speed:** slow the song down to 50% without changing its pitch.
+  - **Play my notes along:** the whistle plays your score in time with the song.
+  - **Click the beat:** a metronome on the song's beats, to check the bar lines.
+  - **Undo / redo** (Ctrl+Z / Ctrl+Y).
+  - **Key −/+:** moves every note by a semitone.
+  - **Cuts and rolls.**
+  - **Print / PDF.**
+- **Saving:**
+  - **Save** writes a `.whistle.json` file, which **Open saved** reads back.
+  - The score is also kept in the browser, and the start page offers to continue where you left off.
+
+### Bar lines
+
+When a song opens, the app finds its beat and bar lines (librosa beat tracking). Notes sit on that grid, so the
+score follows the song even when its tempo drifts. If the bar lines are off, turn on *Click the beat* and open
+**Bar lines in the wrong place?**. You can:
+
+- halve or double the tempo;
+- move the bar lines by a beat;
+- set a steady beat: type or tap the tempo, pause on the first beat of a bar, and press **A bar starts here**.
+
+When you record a tune to the metronome, that beat is used as it is.
+
+Recording needs microphone access. The browser only allows it on `http://localhost` or over https, which is how
+the start scripts open the app. Headphones keep the metronome out of the recording.
 
 ## How it works
 
 ```
-load:  song ─► download / decode ─► beat grid + bar lines (librosa)
-part:  clip ─► separate stems (Demucs 6-stem) ─┬─ singer:  vocals ─► voice pitch contour (pYIN) ─► notes
-                                               ├─ whistle / flute: other (no guitar/piano), drones + tremolo removed
-                                               │     ─► pitch contour (pYIN) checked against Basic Pitch, gaps filled by Basic Pitch
-                                               └─ other instrument / whole band ─► Basic Pitch
-       ─► pick the melody line (Viterbi) ─► quantize onto the song's grid
-browser: parts ─► transpose for the whistle ─► level arrangement ─► VexFlow staff + fingering charts
+song / recording ─► download (yt-dlp) / decode (ffmpeg) ─► beat grid + bar lines (librosa)   [backend]
+score position (beats) ◄─► song time via the beat grid ─► VexFlow staff + fingering charts    [browser]
 ```
 
-- **Singing:** it tracks the voice's pitch contour with pYIN and cuts it into notes, ignoring vibrato and slides between notes. This avoids the split and mis-pitched notes that general-purpose transcription produces on vocals.
-- **Shared beat grid:** every part is placed on the whole song's beat grid, so the parts join into one continuous score. Each note remembers where it was heard, which is what drives the playback highlighting.
-- **Server and browser:** the server (`backend/`) does the audio work. Arranging, editing and playback run in the browser (`frontend/`).
+- **Server** (`backend/`): downloads and decodes songs, finds the beat, and serves the audio back.
+- **Browser** (`frontend/`): everything else, including note entry, playback, the whistle synth and the metronome.
 
 ## Running it
 
@@ -63,22 +74,15 @@ browser: parts ─► transpose for the whistle ─► level arrangement ─► 
 On the first run it installs everything and builds the app, which takes a few minutes. After that it starts in
 seconds and opens http://localhost:8000 in your browser. It rebuilds automatically after a `git pull`.
 Keep its window open while you use the app, and close it (or press Ctrl+C) to stop.
-To add vocal separation, run it once with `--with-separation`, e.g. `start.bat --with-separation`.
 
 ### By hand
 
-Requirements: Python 3.10 or newer (tested on 3.11 and 3.13) and Node 20+. ffmpeg comes bundled through
-`imageio-ffmpeg`. TensorFlow is not needed: the note-detection model runs with onnxruntime.
+Requirements: Python 3.10 or newer and Node 20+. ffmpeg comes bundled through `imageio-ffmpeg`.
 
 ```bash
 # Backend
 python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -r backend/requirements-dev.txt
-# Basic Pitch pins a TensorFlow that no longer installs, so skip its dependencies:
-pip install --no-deps basic-pitch==0.4.0
-# Optional, but much better for songs with a band (CPU torch keeps it small):
-pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-pip install -r backend/requirements-separation.txt
 
 # Frontend
 cd frontend && npm install && npm run build && cd ..
@@ -87,8 +91,10 @@ cd frontend && npm install && npm run build && cd ..
 cd backend && uvicorn app.main:app --port 8000
 ```
 
-For frontend development, run `npm run dev` in `frontend/` alongside uvicorn. Vite forwards `/api` requests to port 8000.
-If the app is served from somewhere other than the API (for example, a phone app), set `VITE_API_BASE`.
+For frontend development, run `npm run dev` in `frontend/` alongside uvicorn. Vite forwards `/api` requests to
+port 8000. If the app is served from somewhere other than the API (for example, a phone app), set `VITE_API_BASE`.
+
+`tools/get_clip.py` downloads a YouTube song as an MP3 into `clips/`, if you would rather open a file.
 
 ## Tests
 
@@ -99,8 +105,6 @@ cd frontend && npm test
 
 ## Known limits
 
-- Transcribing audio is approximate. Expect to fix some notes, especially without vocal isolation or in busy mixes.
-- Only 2/4, 3/4 and 4/4 are supported. The time signature is chosen when loading (default 4/4) and is not detected.
-- With vocal isolation on, a part takes roughly its own length to score on a laptop CPU. Parts are capped at 2:30.
-- The server keeps the last 5 songs in memory. After a restart, load the song again to keep scoring.
+- Only 2/4, 3/4 and 4/4 are supported. You choose the time signature when opening a song (default 4/4).
+- The server keeps the last 5 songs in memory. After a restart, a saved score still opens, but without its song.
 - Only the D whistle is supported so far.

@@ -16,15 +16,10 @@ from dataclasses import dataclass, field
 # the ratios matter much: the machine's real speed is learned while running.
 STEP_COSTS = {
     "decode": 0.003,
-    "separate": 0.45,
     "beats": 0.02,
-    "notes": 0.015,  # Basic Pitch; the pYIN voice tracker costs about 0.06
-    "melody": 0.005,
-    "learn": 0.0,
 }
-
 # Fixed start-up time (loading models), in seconds at the reference speed.
-STEP_STARTUP = {"separate": 15.0, "notes": 1.0, "learn": 3.0}
+STEP_STARTUP: dict[str, float] = {}
 # A step's own rate is trusted once it has done this much of its work.
 MIN_FRACTION_FOR_RATE = 0.03
 MIN_SECONDS_FOR_RATE = 3.0

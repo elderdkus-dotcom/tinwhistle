@@ -1,8 +1,8 @@
 """HTTP API.
 
-1. POST /api/songs loads a song (upload or link) and finds its beat grid.
-2. POST /api/songs/{id}/parts scores the melody between two times.
-Both return a job to poll at /api/jobs/{id} (DELETE cancels it).
+POST /api/songs loads a song (an upload, a recording or a link), decodes it
+and finds its beat grid. It returns a job to poll at /api/jobs/{id} (DELETE
+cancels it); the audio is then served at /api/songs/{id}/audio.
 """
 
 from __future__ import annotations
@@ -13,12 +13,8 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
-
-from app.audio.profile import Example
-from app.audio.separate import separation_available
 from app.jobs import Job, JobRunner
-from app.songs import SOURCES, SongInput, SongStore, analyze_part, load_song
+from app.songs import SongInput, SongStore, load_song
 
 MAX_UPLOAD_BYTES = 60 * 1024 * 1024
 FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
@@ -36,7 +32,7 @@ def job_json(job: Job) -> dict:
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"ok": True, "separation": separation_available()}
+    return {"ok": True}
 
 
 @app.post("/api/songs")
@@ -73,36 +69,6 @@ async def create_song(
         return {"song": song.to_json()}
 
     return job_json(runner.submit("song", work))
-
-
-class ExampleNote(BaseModel):
-    """A note the user marked: the sound to catch (wanted) or to ignore."""
-
-    time: float
-    end: float
-    pitch: int  # MIDI, as heard in the song
-    wanted: bool
-
-
-class PartRequest(BaseModel):
-    start: float
-    end: float
-    # Which instrument carries the melody: voice | whistle | flute | instrument | mix
-    source: str = "voice"
-    examples: list[ExampleNote] = []
-
-
-@app.post("/api/songs/{song_id}/parts")
-def create_part(song_id: str, req: PartRequest) -> dict:
-    song = songs.get(song_id)
-    if song is None:
-        raise HTTPException(404, "This song is no longer on the server; please load it again.")
-    if req.source not in SOURCES:
-        raise HTTPException(400, f"Unknown melody source: {req.source}")
-    examples = [Example(e.time, e.end, e.pitch, e.wanted) for e in req.examples if e.end > e.time]
-    return job_json(
-        runner.submit("part", lambda progress: analyze_part(song, req.start, req.end, req.source, progress, examples))
-    )
 
 
 @app.get("/api/songs/{song_id}")

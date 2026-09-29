@@ -103,6 +103,29 @@ export class Player {
     }
   }
 
+  /** Sound one note briefly, e.g. while choosing its pitch. */
+  preview(pitch: number, seconds = 0.4): void {
+    const { ctx } = this.audio()
+    void ctx.resume()
+    this.stop()
+    this.tone(pitch, ctx.currentTime + 0.01, seconds)
+  }
+
+  /** Metronome clicks at these times (seconds from now). */
+  clicks(times: { at: number; accent: boolean }[]): void {
+    const { ctx } = this.audio()
+    void ctx.resume()
+    this.stop()
+    const t0 = ctx.currentTime + 0.02
+    for (const c of times) if (c.at >= 0) this.click(t0 + c.at, c.accent)
+  }
+
+  /** How long (seconds) after scheduling a sound it is actually heard. */
+  latency(): number {
+    const ctx = this.audio().ctx as AudioContext & { outputLatency?: number }
+    return (ctx.baseLatency ?? 0) + (ctx.outputLatency ?? 0)
+  }
+
   play(notes: ScoreNote[], options: PlayOptions): void {
     this.stop()
     const { ctx } = this.audio()

@@ -1,15 +1,19 @@
 import { useState } from 'react'
 import type { SongRequest } from '../api'
 import { DEMOS, type Demo } from '../demo'
+import { HumRecorder, type HumGrid } from './HumRecorder'
 
 interface Props {
   busy: boolean
-  onSubmit: (req: SongRequest) => void
+  onSubmit: (req: SongRequest, grid?: HumGrid | null) => void
+  onEmpty: (beatsPerMeasure: number) => void
   onDemo: (demo: Demo) => void
 }
 
-export function InputPanel({ busy, onSubmit, onDemo }: Props) {
-  const [mode, setMode] = useState<'link' | 'file'>('link')
+type Mode = 'link' | 'file' | 'hum'
+
+export function InputPanel({ busy, onSubmit, onEmpty, onDemo }: Props) {
+  const [mode, setMode] = useState<Mode>('link')
   const [url, setUrl] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [beats, setBeats] = useState(4)
@@ -19,7 +23,7 @@ export function InputPanel({ busy, onSubmit, onDemo }: Props) {
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!ready || busy) return
+    if (!ready || busy || mode === 'hum') return
     onSubmit({
       url: mode === 'link' ? url.trim() : undefined,
       file: mode === 'file' ? file ?? undefined : undefined,
@@ -29,7 +33,7 @@ export function InputPanel({ busy, onSubmit, onDemo }: Props) {
 
   return (
     <form className="card input-panel" onSubmit={submit}>
-      <h2>Choose a song</h2>
+      <h2>What do you want to write down?</h2>
       <div className="segmented" role="tablist">
         <button type="button" role="tab" aria-selected={mode === 'link'} onClick={() => setMode('link')}>
           YouTube link
@@ -37,9 +41,21 @@ export function InputPanel({ busy, onSubmit, onDemo }: Props) {
         <button type="button" role="tab" aria-selected={mode === 'file'} onClick={() => setMode('file')}>
           Audio file
         </button>
+        <button type="button" role="tab" aria-selected={mode === 'hum'} onClick={() => setMode('hum')}>
+          Hum a tune
+        </button>
       </div>
 
-      {mode === 'link' ? (
+      <label className="field">
+        <span>Time signature</span>
+        <select value={beats} onChange={(e) => setBeats(Number(e.target.value))}>
+          <option value={4}>4/4 (most songs, reels)</option>
+          <option value={3}>3/4 (waltz)</option>
+          <option value={2}>2/4 (polka, march)</option>
+        </select>
+      </label>
+
+      {mode === 'link' && (
         <label className="field">
           <span>Paste a link to the song</span>
           <input
@@ -50,7 +66,8 @@ export function InputPanel({ busy, onSubmit, onDemo }: Props) {
             onChange={(e) => setUrl(e.target.value)}
           />
         </label>
-      ) : (
+      )}
+      {mode === 'file' && (
         <label
           className={`dropzone${dragging ? ' dragging' : ''}`}
           onDragOver={(e) => {
@@ -70,22 +87,21 @@ export function InputPanel({ busy, onSubmit, onDemo }: Props) {
           <span>MP3, M4A, WAV, OGG, FLAC or a video file, up to 60 MB</span>
         </label>
       )}
+      {mode === 'hum' && (
+        <HumRecorder beatsPerMeasure={beats} busy={busy} onDone={(f, grid) => onSubmit({ file: f, beatsPerMeasure: beats }, grid)} />
+      )}
 
-      <label className="field">
-        <span>Time signature</span>
-        <select value={beats} onChange={(e) => setBeats(Number(e.target.value))}>
-          <option value={4}>4/4 (most songs)</option>
-          <option value={3}>3/4 (waltz)</option>
-          <option value={2}>2/4 (polka, march)</option>
-        </select>
-      </label>
-
-      <button className="primary" type="submit" disabled={!ready || busy}>
-        Load the song
-      </button>
+      {mode !== 'hum' && (
+        <button className="primary" type="submit" disabled={!ready || busy}>
+          Open the song
+        </button>
+      )}
 
       <div className="demos">
-        <span>No song handy? Try a demo:</span>
+        <button type="button" className="link" onClick={() => onEmpty(beats)}>
+          Start an empty score (no song)
+        </button>
+        <span>· Or open an example:</span>
         {DEMOS.map((d) => (
           <button type="button" className="link" key={d.title} onClick={() => onDemo(d)}>
             {d.title.replace(' (demo)', '')}

@@ -1,20 +1,13 @@
-"""Beat tracking and quantizing real-time notes onto a beat grid."""
+"""Beat tracking and bar lines, for mapping between song time and score position."""
 
 from __future__ import annotations
 
 import numpy as np
 
-from app.music.model import BeatNote, NoteEvent
-
-GRID = 0.25  # beats: sixteenth notes in 4/4
 MIN_TEMPO = 60.0
-# Fast tunes (reels, marches, rebel songs) often run at 150-180 BPM; halving
-# them would put their quick notes closer together than the sixteenth grid.
+# Fast tunes (reels, marches, rebel songs) often run at 150-180 BPM; they are
+# only halved above this, so their quick notes still fit the sixteenth grid.
 MAX_TEMPO = 185.0
-# Gaps shorter than this (in beats) are closed by extending the previous note;
-# singers breathe and consonants cut notes short, but the score should not
-# be full of sixteenth rests.
-MAX_FILLED_GAP = 0.5
 
 
 def track_beats(y: np.ndarray, sr: int) -> tuple[float, np.ndarray]:
@@ -77,56 +70,6 @@ def seconds_to_beats(times: np.ndarray, beats: np.ndarray) -> np.ndarray:
     idx[before] = (times[before] - beats[0]) / period
     idx[after] = len(beats) - 1 + (times[after] - beats[-1]) / period
     return idx
-
-
-def grid_offset(positions: np.ndarray) -> float:
-    """How far (in beats) note onsets sit, on average, from the eighth-note grid.
-
-    Beat trackers often place beats a few tens of milliseconds late, which is
-    enough to push notes into the wrong sixteenth when rounding.
-    """
-    if len(positions) < 4:
-        return 0.0
-    angles = 2 * np.pi * positions / 0.5
-    mean = np.mean(np.exp(1j * angles))
-    if abs(mean) < 0.3:  # no clear grid; leave the beats alone
-        return 0.0
-    return float(np.angle(mean) / (2 * np.pi) * 0.5)
-
-
-def quantize(notes: list[NoteEvent], beats: np.ndarray) -> list[BeatNote]:
-    """Snap notes to the sixteenth grid and make the line strictly monophonic.
-
-    Positions are in beat indices: position i is the time of beats[i].
-    """
-    if not notes:
-        return []
-    starts = seconds_to_beats(np.array([n.start for n in notes]), beats)
-    ends = seconds_to_beats(np.array([n.end for n in notes]), beats)
-    offset = grid_offset(starts)
-    starts, ends = starts - offset, ends - offset
-    out: list[BeatNote] = []
-    for n, s, e in zip(notes, starts, ends):
-        qs = round(s / GRID) * GRID
-        qe = max(round(e / GRID) * GRID, qs + GRID)
-        if out and qs < out[-1].end():
-            if qs <= out[-1].start:
-                # Two notes snapped to the same slot: keep the longer one.
-                if qe - qs > out[-1].duration:
-                    out[-1] = BeatNote(n.pitch, out[-1].start, qe - out[-1].start, n.start, n.end)
-                continue
-            out[-1].duration = qs - out[-1].start
-        out.append(BeatNote(n.pitch, qs, qe - qs, n.start, n.end))
-
-    merged: list[BeatNote] = []
-    for n in out:
-        if merged:
-            prev = merged[-1]
-            gap = n.start - prev.end()
-            if 0 < gap <= MAX_FILLED_GAP + 1e-9:
-                prev.duration += gap
-        merged.append(n)
-    return merged
 
 
 def downbeat_phase(evidence: np.ndarray, beats_per_measure: int) -> int:
